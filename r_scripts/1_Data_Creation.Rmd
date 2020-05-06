@@ -1,0 +1,553 @@
+---
+title: "Data Creation"
+author: "Team Strikes"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+  code_folding: hide
+  highlight: pygment
+  theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(warn=-1)
+```
+
+```{r Check installed packages, echo = FALSE, warning=FALSE, message=FALSE}
+# Creating a vector of packages used within
+packages <- c(
+  'dplyr',
+  'lubridate',
+  'magrittr',
+  'tidyverse',
+  'tidyselect',
+  'readxl',
+  'zoo'
+)
+
+# Checking for package installations on the system and installing if not found
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+
+# Including the packages for use
+for(package in packages){
+  library(package, character.only = TRUE)
+}
+
+```
+
+### Load Weather Data
+
+This Section loads the weather data from NCDC/NOAA site. Below is the link from where the dataset has been downloaded.
+
+**URL:** https://www7.ncdc.noaa.gov/CDO/cdoselect.cmd?datasetabbv=GSOD&resolution=40
+
+**Methodology:**  Data is readily usable to be joined with the main dataset as the weather is by day of the month for each year. NOAA has taken a 24hr average for each variable and summarized it by day.
+
+
+```{r Weather File Load}
+
+##############################################################################
+# This Section loads the weather data from NCDC/NOAA site. Below is the 
+# link from where the dataset has been downloaded.
+# 
+# https://www7.ncdc.noaa.gov/CDO/cdoselect.cmd?datasetabbv=GSOD&resolution=40
+#
+# The data for weather is by day. NOAA site has taken a 24hr average for
+# each variable and aggregated it by day to create the dataset.
+#
+##############################################################################
+
+
+###### Uncomment to run for the airport required 
+
+###### To Be uncommented to if need to run all the data from inception
+
+# weather <- read_csv("../data/DFW/w_DFW.csv") #this doesn't need the precip code
+# weather <- read_csv("../data/ORD/w_ORD.csv")
+# weather <- read_csv("../data/SMF/w_SMF.csv")
+# weather <- read_xls("../data/KDEN/w_DEN.xls")
+# 
+# #converts the date column into date (for non KDEN)
+# weather<- weather %>% dplyr::rename(DATE = YEARMODA)
+# 
+# # Convert to Date 
+# weather$DATE <- ymd(weather$DATE)
+# 
+# # The format of Precip Column from NOAA website is "0.5D"
+# # Corrects the precip column to select the integer part 
+# # and discard the alphabets in the data. 
+# weather <- weather %>% mutate(PRCP = substr(PRCP, 1, 4))
+# 
+# # Converts all of the columns to numeric up until precip
+# weather[2:11] <- sapply(weather[2:11], as.numeric, na.rm = TRUE)
+# 
+# # Converts all the columns to factor for the remaining column 
+# weather[11:17] <- lapply(weather[12:16], factor)
+# sapply(weather,class)
+# 
+# # As GUST and STP Columns are mostly 0's and noisy, remove GUST and STP variables
+# weather <- weather %>% select(-GUST, -STP)
+# 
+# # Retain only complete cases, Any column with NA values will be removed
+# weather <- weather[complete.cases(weather),]
+# 
+# 
+# # Remove noisy data from MXSPD and PRCP variables
+# weather <-
+#   weather[!(weather$MXSPD == 999.9 |
+#               weather$PRCP == 99.99),]
+# 
+# #NA Value Check
+# colSums(is.na(weather))
+# weather %>% filter(is.na(weather$TEMP))
+# 
+# ###### Uncomment to run for the airport required -SAVE
+# saveRDS(weather,"../data/DFW/DFW_Weather.RDS")
+# saveRDS(weather,"../data/ORD/ORD_Weather.RDS")
+# saveRDS(weather,"../data/SMF/SMF_Weather.RDS")
+# saveRDS(weather,"../data/KDEN/KDEN_Weather.RDS")
+
+```
+
+### Load Bird Count Data
+
+Data is generated from EBirds API which is hosted by Cornell labs of Ornithology.  Historical observations API is used to download the count of bird citings in the sky in a 10 miles radius of any Airport. 
+
+##### Home Page for EBirds API: 
+
+**URL:** https://documenter.getpostman.com/view/664302/S1ENwy59?version=latest
+
+##### Historic observations on a date: 
+
+**URL:** https://documenter.getpostman.com/view/664302/S1ENwy59?version=latest#2d8c6ee8-c435-4e91-9f66-6d3eeb09edd2
+
+##### Adjacent Regions: 
+
+**URL:** https://documenter.getpostman.com/view/664302/S1ENwy59?version=latest#3aca0519-3105-47fc-8611-a4dfd500a32f
+
+
+**Methodology:** Using the Adjacent Regions API, Get the Adjacent location codes of an Airports based in the ICAO lat longs and save the information to a list. Use this list in the Historical Observations API to get all the bird citings. Json objects with the howMany element has the count of all the citings. Summarize the count by day to get the bird counts.
+
+
+```{r Birdcount Load }
+
+# ###### Uncomment to run for the airport required 
+# 
+# ###### To Be uncommented to if need to run all the data from inception
+# 
+# birdcount <- read_csv("../data/DFW/birdCount_Aggregated_DFW.csv")
+# birdcount <- read_csv("../data/ORD/birdCount_Aggregated_ORD.csv")
+# birdcount <- read_csv("../data/SMF/birdCount_Aggregated_SMF.csv")
+# 
+# 
+# ########################################################################
+# # As part of the discussions we have decided that we will be looking
+# # at birds around the 10 miles radius and it has been taken care in
+# # ../py_scripts/EBirds Api.ipynb
+# #######################################################################
+# 
+# birdcount <- birdcount %>% filter(milesFromAirport < 10)
+# 
+# # Correct the names of the file 
+# names(birdcount)<-c("DATE","BIRDCOUNT")
+# 
+# # Convert to date format 
+# birdcount$DATE <- as.Date(birdcount$DATE, format = "%m/%d/%y")
+# 
+# # Already grouped by Date
+# birdcount <-
+#   birdcount %>% group_by(DATE) %>% summarise(BIRDCOUNT = sum(howMany))
+# 
+# # Fill NA values with 0's for BirdCounts
+# birdcount$BIRDCOUNT[is.na(birdcount$BIRDCOUNT)] <- 0
+# 
+# # checking class 
+# sapply(birdcount,class)
+# 
+# #NA Value Check
+# colSums(is.na(birdcount))
+# 
+# ###### Uncomment to run for the airport required -SAVE
+# saveRDS(birdcount,"../data/DFW/DFW_BirdCount.RDS")
+# saveRDS(birdcount,"../data/ORD/ORD_BirdCount.RDS")
+# saveRDS(birdcount,"../data/SMF/SMF_BirdCount.RDS")
+
+```
+
+### Load Strikes Data
+
+Strikes dataset is generated by downloading the data from the FAA Wildlife Strikes. FAA records the data of each wild life strike at every airfield in USA. For the project we are considering KDEN(Denver International Airport) as our main focus as KDEN is in the birds migration path and has the highest recorded strikes in this dataset. We are considering strikes occurred only below 2000Ft height at any airport. 
+
+**URL:** https://wildlife.faa.gov/search
+
+**Methodology:** Download the FAA Strikes file from the above mentioned URL. Filter the strikes by height variable for all the strikes below 2000ft and aggregate the strikes by day to get the strikes count by day. Create a new column STRIKES which labels whether there was a strike or not on any given day.
+
+
+```{r Strikes Load}
+
+###### To Be uncommented to if need to run all the data from inception
+
+# # All strikes are till December 2019
+# faa <- read_xlsx("../data/DFW/DFW strikes.xlsx")
+# faa <- read_xlsx("../data/ORD/ORD strikes.xlsx")
+# faa <- read_xlsx("../data/SMF/SMF strikes.xlsx")
+# faa <- read_xlsx("../data/KDEN/KDEN strikes.xlsx")
+# 
+# # Assigns the binary value of 1 to the Strie
+# faa['STRIKE'] <- 1
+# 
+# # Applies the 2000 Filter of feet to the height (Removes anything above )
+# faa <- faa %>% filter(HEIGHT <= 2000)
+# 
+# #Converts the data format
+# faa$INCIDENT_DATE <- as.Date(faa$INCIDENT_DATE, '%Y-%m-%d')
+# 
+# 
+# #Only maintains the Date and totals the number of strikes by Day
+# faa <- faa %>%
+#   group_by(INCIDENT_DATE, STRIKE) %>%
+#   summarise(STRIKECOUNT = sum(STRIKE)) %>%
+#   filter(INCIDENT_DATE >= as.Date("2000-01-01"))
+# 
+# faa <-  faa %>%
+#   dplyr::rename(DATE = INCIDENT_DATE)
+# 
+# #checks class
+# sapply(faa, class)
+# 
+# #NA Value Check
+# colSums(is.na(faa))
+# 
+# ### Save the file
+# saveRDS(faa, "../data/DFW/DFW_FAA.RDS")
+# saveRDS(faa, "../data/ORD/ORD_FAA.RDS")
+# saveRDS(faa, "../data/SMF/SMF_FAA.RDS")
+# saveRDS(faa, "../data/KDEN/KDEN_FAA.RDS")
+
+```
+
+### Load Flights Data
+
+Flight counts are generated from Bureau of Transportation Statistics, Flight On-time performance data. Website has been scrapped to get the data for the flight on time performance for all the months since JAN 2000 - Dec 2019. Please see the web scrapping logic under "../data/py_scripts/Flight Arrival Departure Download.ipynb". The files generated are then merged using the "../data/Flight Arrivals And Departures - Merge Files.ipynb".
+
+**URL:** https://www.transtats.bts.gov/DL_SelectFields.asp?Table_ID=236
+
+**Methodology:** The output of executing the above mentioned python scripts is file with the count of flight for arrivals and departures by hour blocks. Data is summarized by adding up the arrivals and departures by day.
+
+
+```{r Flight Load}
+# Import arrivals and departures for each airport
+# N.B. The departures and arrivals empty columns are needed as this is faster than pivoting the final table
+ 
+# data_arrivals <- read.csv("../data/DFW/Airline_Arrivals_Group_DFW.csv") %>%
+#   rename(DATE=FL_DATE,TIME=ARR_TIME_BLK,ARRIVALS=Counts) %>%
+#   mutate(AD = factor("A", levels=c("A","D")), DEPARTURES = 0)
+# 
+# data_departures <- read.csv("../data/DFW/Airline_Departures_Group_DFW.csv") %>%
+#   rename(DATE=FL_DATE,TIME=DEP_TIME_BLK,DEPARTURES=Counts) %>%
+#   mutate(AD = factor("D", levels=c("A","D")), ARRIVALS = 0)
+# 
+# 
+# data_arrivals <- read.csv("../data/ORD/Airline_Arrivals_Group_ORD.csv") %>%
+#   rename(DATE=FL_DATE,TIME=ARR_TIME_BLK,ARRIVALS=Counts) %>%
+#   mutate(AD = factor("A", levels=c("A","D")), DEPARTURES = 0)
+# 
+# data_departures <- read.csv("../data/ORD/Airline_Departures_Group_ORD.csv") %>%
+#   rename(DATE=FL_DATE,TIME=DEP_TIME_BLK,DEPARTURES=Counts) %>%
+#   mutate(AD = factor("D", levels=c("A","D")), ARRIVALS = 0)
+# 
+# data_arrivals <- read.csv("../data/SMF/SMF_Arrivals_Group.csv") %>%
+#   rename(DATE=FL_DATE,TIME=ARR_TIME_BLK,ARRIVALS=Counts) %>%
+#   mutate(AD = factor("A", levels=c("A","D")), DEPARTURES = 0)
+# 
+# data_departures <- read.csv("../data/SMF/SMF_Departures_Group.csv") %>%
+#   rename(DATE=FL_DATE,TIME=DEP_TIME_BLK,DEPARTURES=Counts) %>%
+#   mutate(AD = factor("D", levels=c("A","D")), ARRIVALS = 0)
+# 
+# data_arrivals <- read.csv("../data/KDEN/Airline_Arrivals_Group.csv") %>%
+#   rename(DATE=FL_DATE,TIME=ARR_TIME_BLK,ARRIVALS=Counts) %>%
+#   mutate(AD = factor("A", levels=c("A","D")), DEPARTURES = 0)
+# 
+# data_departures <- read.csv("../data/KDEN/Airline_Departures_Group.csv") %>%
+#   rename(DATE=FL_DATE,TIME=DEP_TIME_BLK,DEPARTURES=Counts) %>%
+#   mutate(AD = factor("D", levels=c("A","D")), ARRIVALS = 0)
+# 
+# # Join the arrival and departure datasets 
+# data_flights <- rbind(data_arrivals,data_departures) 
+# 
+# # Convert DATE column to date type
+# data_flights$DATE <- ymd(data_flights$DATE)
+# 
+# # Summarize the dateset by DATE
+# data_flights <- data_flights %>% 
+#   select(-AD) %>% 
+#   dplyr::group_by(DATE) %>% 
+#   summarise(TOTAL = sum(ARRIVALS,DEPARTURES))
+# 
+# rm(data_arrivals, data_departures)
+# 
+# 
+# # ##never to be run AGAIN
+# kden <- readRDS("../data/SMF/SMF_FINAL.RDS")
+# kden <- left_join(kden, data_flights , by = c("DATE" = "DATE"))
+# kden$TOTAL.x <- ifelse(is.na(kden$TOTAL.x), kden$TOTAL.y, kden$TOTAL.x)
+# kden <- kden %>% rename(TOTAL = TOTAL.x) %>% dplyr::select(-c(TOTAL.y))
+# saveRDS(kden, "../data/SMF/SMF_FINAL.RDS")
+# 
+# # Save the rds files
+# saveRDS(data_flights, "../data/DFW/DFW_Flights.RDS")
+# saveRDS(data_flights, "../data/ORD/ORD_Flights.RDS")
+# saveRDS(data_flights, "../data/SMF/SMF_Flights.RDS")
+ 
+```
+
+### Master File Creation
+
+With Bird counts, Flight counts, Weather and strikes data files ready to merge to create a Master data file we start by creating an empty tibble and merge all the datasets by joining over DATE
+
+```{r Load RDS }
+### Note - assumes these have been cleaned already and  contain a DATE and RTIME field
+
+# data_w <- readRDS("../data/DFW/DFW_Weather.RDS")
+# data_f <- readRDS("../data/DFW/DFW_Flights.RDS")
+# data_b <- readRDS("../data/DFW/DFW_BirdCount.RDS")
+# data_faa <- readRDS("../data/DFW/DFW_FAA.RDS")
+
+# data_w <- readRDS("../data/ORD/ORD_Weather.RDS")
+# data_f <- readRDS("../data/ORD/ORD_Flights.RDS")
+# data_b <- readRDS("../data/ORD/ORD_BirdCount.RDS")
+# data_faa <- readRDS("../data/ORD/ORD_FAA.RDS")
+
+# data_w <- readRDS("../data/SMF/SMF_Weather.RDS")
+# data_f <- readRDS("../data/SMF/SMF_Flights.RDS")
+# data_b <- readRDS("../data/SMF/SMF_BirdCount.RDS")
+# data_faa <- readRDS("../data/SMF/SMF_FAA.RDS")
+
+# data_w <- readRDS("../data/KDEN/KDEN_Weather.RDS")
+# data_f <- readRDS("../data/KDEN/KDEN flights.RDS")
+# data_b <- readRDS("../data/KDEN/KDEN_BirdCount.RDS")
+# data_faa <- readRDS("../data/KDEN/KDEN_FAA.RDS")
+
+
+```
+
+```{r Create Empty Tibble}
+# Create an empty tibble with Date column
+strikes <- tibble(DATE = seq(ymd("2000-01-01"),ymd("2019-12-31"), by= "days")) 
+
+```
+
+```{r Join Bird Counts}
+# Left join on DATE to merge the Bird counts dataset with empty strikes tibble
+data_b <- data_b %>%
+  group_by(DATE) %>%
+  summarise(BIRDCOUNT = sum(BIRDCOUNT))
+
+strikes <-
+  left_join(strikes, data_b , by = c("DATE" = "DATE"))
+
+```
+
+```{r Join Flight Counts}
+# Summarize the flight counts by DATE
+data_f <- data_f %>%
+  group_by(DATE) %>%
+  summarise(TOTAL = sum(TOTAL))
+
+# Left join flight counts with DATE to the strikes tibble
+strikes <-
+  left_join(strikes, data_f , by = c("DATE" = "DATE"))
+
+```
+
+```{r Join Weather}
+# Left join weather data to the strikes tibble
+strikes <-
+  left_join(strikes, data_w , by = c("DATE" = "DATE"))
+```
+
+```{r Join FAA Strikes data}
+# Left join FAA strikes data to the strikes tibble
+strikes <-
+  left_join(strikes, data_faa, by = c("DATE" = "DATE"))
+```
+
+```{r Transform data}
+# Convert all date time and create season variable
+strikes <- cbind(
+  strikes,
+  data.frame(
+    YEAR = as.factor(format(strikes$DATE, format = "%Y")),
+    MONTH = as.factor(format(strikes$DATE, format = "%m")),
+    DAYOFWEEK = as.factor(format(strikes$DATE, format = "%A")),
+    SEASON = as.factor(factor(
+      format(as.yearqtr(
+        as.yearmon(strikes$DATE, "%m/%d/%Y") + 1 / 12
+      ), "%q"),
+      levels = 1:4,
+      labels = c("winter", "spring", "summer", "fall")
+    ))
+  )
+)
+
+# Set all the NA values for strike to 0 
+# (After joining the strikes data which has only strikes = 1 rest all the data will be strikes = 0)
+strikes$STRIKE[is.na(strikes$STRIKE)] <- 0
+
+# Same as above if a strike happened then the strikecount is populated else 0  
+strikes$STRIKECOUNT[is.na(strikes$STRIKECOUNT)] <- 0
+
+# ASSUMPTION: We are assuming that an NA value for birdcount is no bird in the sky
+strikes$BIRDCOUNT[is.na(strikes$BIRDCOUNT)] <- 0
+
+```
+
+
+```{r Check and Save RDS }
+# Check for NAs in all columns
+colSums(is.na(KDEN))
+
+#saveRDS(strikes,"../data/DFW/DFW_FINAL.RDS")
+#saveRDS(strikes,"../data/ORD/ORD_FINAL.RDS")
+#saveRDS(strikes,"../data/SMF/SMF_FINAL.RDS")
+#saveRDS(strikes,"../data/KDEN/KDEN_FINAL.RDS")
+
+```
+
+```{r Create Risk Buckets using RATIOW}
+# Function to create Ratios based on strike and flight counts and generate the RISK buckets.
+ratio_f <- function(master.data) {
+  # Make sure there are no NAs in the data
+  master.data <- master.data[complete.cases(master.data), ]
+  
+  # Create Ratio column based on STRIKECOUNT/FLIGHTCOUNT * 10000
+  master.data <- master.data %>%
+    mutate(
+      WEEK = lubridate::week(master.data$DATE),
+      YEAR = lubridate::year(master.data$DATE)
+    ) %>%
+    mutate(RATIO = STRIKECOUNT / TOTAL * 10000)
+  
+  # Group master data by YEAR and WEEK and take Average of RATIO and apply the values in a new column RATIOW
+  ratio_week <-
+    master.data %>% group_by(YEAR, WEEK) %>% summarise(RATIOW = mean(RATIO))
+  
+  # Join the RATIOW column to the master dataframe
+  master.data <-
+    inner_join(master.data, ratio_week, by = c("YEAR" = "YEAR", "WEEK" = "WEEK"))
+  
+  # Create a function to perform a rolling mean for a 7 day window 
+  rmean7 <- tibbletime::rollify(mean, window = 7)
+  
+  # Apply the rolling 7 day average on the ratio
+  master.data <- master.data %>% mutate(RATIOFW7D = rmean7(RATIO))
+  
+  # Create buckets with breaks 
+  master.data$RISKNUM <-
+    .bincode(
+      master.data$RATIOFW7D,
+      breaks = c(-1, 4, 10, 5000),
+      include.lowest = TRUE
+    ) - 1
+  
+  # Create RISK column based on RISSKNUM columns
+  master.data$RISK <-
+    as.factor(ifelse(
+      master.data$RISKNUM == 0,
+      "L",
+      ifelse(master.data$RISKNUM == 1, "M", "H")
+    ))
+  
+  return(master.data)
+}
+
+```
+
+```{r Create Master dataset}
+
+### Merging all the airfields
+SMF <- readRDS("../data/SMF/SMF_FINAL.RDS")
+ORD <- readRDS("../data/ORD/ORD_FINAL.RDS")
+DFW <- readRDS("../data/DFW/DFW_FINAL.RDS")
+KDEN <- readRDS("../data/KDEN/KDEN_FINAL.RDS")
+
+#Adding the Airport ID for KDEN
+SMF$`AIRPORT ID` <- "KSMF"
+ORD$`AIRPORT ID` <- "KORD"
+DFW$`AIRPORT ID` <- "KDFW"
+KDEN$`AIRPORT ID` <- "KDEN"
+
+#Adding the ratios
+SMF <- ratio_f(SMF)
+ORD <- ratio_f(ORD)
+DFW <- ratio_f(DFW)
+KDEN <- ratio_f(KDEN)
+
+#Binding the airports (all but KDEN)
+master.data <- rbind(SMF, ORD)
+master.data <- rbind(master.data, DFW)
+
+#Removing Tornedo Funnel Cloud information since it was not relevant
+master.data <-
+  master.data %>%
+  select(-TORNADO_FUNNELCLOUD, -SNOW_ICE.1)
+
+#Ensuring the order and names of the columns are the same
+KDEN <- KDEN %>%
+  select(
+    DATE,
+    BIRDCOUNT,
+    TOTAL,
+    TEMP,
+    DEWP,
+    SLP,
+    VISIB,
+    WDSP,
+    MXSPD,
+    PRCP,
+    FOG,
+    RAIN_DRIZZLE,
+    SNOW_ICE,
+    HAIL,
+    THUNDER,
+    STRIKE,
+    STRIKECOUNT,
+    YEAR,
+    MONTH,
+    DAYOFWEEK,
+    SEASON,
+    `AIRPORT ID`,
+    WEEK,
+    RATIO,
+    RATIOW,
+    RISK
+  )
+
+#Binding KDEN
+master.data <- rbind(master.data, KDEN)
+
+#Code to remove any NAs
+master.data <- master.data[complete.cases(master.data),]
+
+master.data <- master.data %>% rename(FLIGHTCOUNT = TOTAL)
+
+#Code to create Ratios
+
+master.data %>% group_by(`AIRPORT ID`) %>%
+  summarise(count = sum(STRIKECOUNT))
+```
+
+
+```{r Save Master dataset}
+
+#Save the Master Data 
+saveRDS(master.data,"AIRFIELDS_MASTERv2.RDS")
+
+#write to CSV only if needed
+# write.csv(master.data,"AIRFIELDS_MASTER_v2.csv")
+
+```
+
