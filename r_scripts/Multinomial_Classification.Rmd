@@ -1,0 +1,993 @@
+---
+title: "Multinomial Classification"
+author: "Team Strikes"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    code_folding: hide
+    highlight: pygment
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r Check installed packages, echo = FALSE, warning=FALSE, message=FALSE}
+# Creating a vector of packages used within
+packages <- c(
+  'Boruta',
+  'car',
+  'caret',
+  'dplyr',
+  'e1071',
+  'Information',
+  'lubridate',
+  'magrittr',
+  'MASS',
+  'mctest',
+  'mlbench',
+  'MLeval',
+  'PerformanceAnalytics',
+  'pROC',
+  'proxy',
+  'pscl',
+  'psych',
+  'ranger',
+  'ROCR',
+  'tidyselect',
+  'tidyverse',
+  'VIM',
+  'zoo',
+  'glmnet',
+  'doParallel',
+  'foreach',
+  'DMwR2',
+  'ROSE',
+  'AppliedPredictiveModeling',
+  'xgboost',
+  'InformationValue',
+  'caretEnsemble',
+  'MLmetrics',
+  'nnet',
+  'Metrics',
+  'grid',
+  'gridExtra'
+  # 'compiler'
+)
+
+# Checking for package installations on the system and installing if not found
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+
+# Including the packages for use
+for(package in packages){
+  library(package, character.only = TRUE)
+}
+
+```
+
+
+```{r Airport Name}
+airportName <- "KDEN"
+```
+
+
+```{r Data Preprocessing and Transformation}
+# Read Classification dataset from RDS
+class.data <- readRDS("../data/AIRFIELDS_MASTER_V2.RDS")
+
+# Rename Airfield and filter data by airfield
+class.data <- class.data %>% rename(AIRFIELD = `AIRPORT ID`)
+
+class.data <- class.data %>% filter(class.data$AIRFIELD == airportName)
+
+```
+
+```{r Create New Risk Bins}
+# Remove the already existing ratio columns
+class.data <- class.data %>% dplyr::select(-c(RATIO, RATIOP, RISK))
+
+# Create Ratio column by taking the ratio of strike count to flight count and sort by date
+class.data <- class.data %>%
+  mutate(WEEK = lubridate::week(class.data$DATE),
+         YEAR = lubridate::year(class.data$DATE)) %>%
+  mutate(RATIO = STRIKECOUNT / FLIGHTCOUNT * 10000) %>% arrange(DATE)
+
+# Create RatiW column by taking the mean of ratio grouped over year and week
+# ratio_week <- class.data %>% group_by(YEAR, WEEK) %>% summarise(RATIOW = mean(RATIO))
+
+# Merge the RatioW column back to the main dataframe
+# class.data <- inner_join(class.data,ratio_week, by=c("YEAR"="YEAR", "WEEK"="WEEK"))
+
+# Create a function for rolling mean over 7 days
+rmean7 <- tibbletime::rollify(mean, window=7)
+
+# Create new column by taking a 7 day rolling mean of the ratio
+class.data <- class.data %>% mutate(RATIOFW7D = rmean7(RATIO))
+
+# Create Risk grouping by using breaks obtained after a lot experimentation 
+# to make sure there are no overlapping of buckets
+class.data$RISKNUM <- .bincode(class.data$RATIOFW7D, breaks = c(-1,4,10,5000), include.lowest=TRUE)-1
+
+# Create High/Medium/Low risk labels
+class.data$RISK <-
+  as.factor(ifelse(
+    class.data$RISKNUM == 0,
+    "L",
+    ifelse(class.data$RISKNUM == 1, "M", "H")
+  ))
+
+# Discard all the observations with NA values in any column
+class.data <- class.data[complete.cases(class.data), ]
+
+```
+
+```{r Check Bins}
+# Function to check the overlap of values across all the buckets
+summary_table <- function(df, gvariable, mvariable){
+  df %>% group_by({{gvariable}}) %>% 
+    summarise(Min=min({{mvariable}}), Mean = mean({{mvariable}}), Max = max({{mvariable}}), 
+              Median = median({{mvariable}}),N = n())
+}
+
+summary_table(class.data,RISK,RATIOFW7D)
+```
+
+
+```{r Model Data by Day}
+
+# Reorder data frame by Date 
+class.data <- class.data[order(class.data$DATE), ]
+
+# Remove outliers or missing data
+class.data <-
+  class.data[!(class.data$MXSPD == 999.9 |
+                 class.data$PRCP == 99.99), ]
+
+# Convert variable type
+class.data$FOG <- as.factor(class.data$FOG)
+class.data$RAIN_DRIZZLE <- as.factor(class.data$RAIN_DRIZZLE)
+class.data$HAIL <- as.factor(class.data$HAIL)
+class.data$THUNDER <- as.factor(class.data$THUNDER)
+
+```
+
+```{r Transform data}
+
+# # one-hot-encoding categorical features
+# ohe_feats = c('SEASON')
+# 
+# # Create dummies
+# dummies <- dummyVars(~ SEASON, data = class.data)
+# 
+# df.dummies <- as.data.frame(predict(dummies, newdata = class.data))
+# 
+# # Merge Dummies to data frame
+# class.data <-
+#   cbind(class.data[, -c(which(colnames(class.data) %in% ohe_feats))], df.dummies)
+
+class.data <-
+  subset(
+    class.data,
+    select = -c(
+      DATE,
+      YEAR,
+      SNOW_ICE,
+      STRIKECOUNT,
+      # FLIGHTCOUNT,
+      STRIKE,
+      # VISIB,
+      SEASON,
+      RATIO,
+      # RATIOW,
+      DEWP,
+      MONTH,
+      WDSP,
+      DAYOFWEEK,
+      AIRFIELD,
+      RATIOFW7D,
+      RISKNUM
+    )
+  )
+
+
+```
+
+```{r Test Train Splits}
+# Create the training and test datasets
+set.seed(100)
+
+class.data$RISK <- as.factor(class.data$RISK)
+
+# Step 1: Get row numbers for the training data
+trainRowNumbers.cl <-
+  createDataPartition(class.data$RISK, p = 0.70, list = FALSE)
+
+# Step 2: Create the training  dataset
+train.data <- class.data[trainRowNumbers.cl, ]
+
+# Step 3: Create the test dataset
+test.data <- class.data[-trainRowNumbers.cl, ]
+```
+
+```{r Model Metrics data}
+# Create Model Metrics data frame
+model.metrics <-
+  data.frame(
+    "Overall Stat" = character(0),
+    "ModelName" = character(0),
+    stringsAsFactors = FALSE
+  )
+```
+
+```{r Validate Functions}
+#############################################################################
+# Validate the models by printing Accuracy, Kappa, Sensitivity, Specificity
+# Precision, Recall and F1 Scores for the Classification Model
+#
+# Input: Model
+#        Test Data
+#        Model Name
+#
+# Output: Confusion Matrix with all the classification metrics 
+#         printed on an Image in the console
+#
+############################################################################
+validateAndPrintResult <- function(model, data, modelName = "test") {
+  print(model)
+  
+  # Predict on testData
+  predicted.resp <- predict(model, data)
+  head(predicted.resp)
+  
+  predictions <- as.numeric(predict(model, data, type = 'raw'))
+  # multiclass.roc(data$RISK, predictions)
+  
+  cm <-   caret::confusionMatrix(
+    reference = as.factor(test.data$RISK),
+    data = predicted.resp,
+    mode = 'everything',
+    positive = 'L'
+  )
+  
+  # Record Class - Sensitivity, specificity etc
+  cm_class <- as.data.frame(cm$byClass)
+  
+  cm_class <-
+    cm_class %>% dplyr::select(Sensitivity, Specificity, Precision, Recall, F1)
+  
+  cm_class <- round(cm_class, 2)
+  
+  cm_class <- as.data.frame(t(cm_class))
+  
+  cm_class <-
+    cm_class %>% dplyr::select(`Class: H`, `Class: M`, `Class: L`)
+  
+  # extract the confusion matrix values as data.frame
+  cm_d <- as.data.frame(cm$table)
+  
+  cm_d <- cm_d %>% rename("Actuals" = Reference)
+  # confusion matrix statistics as data.frame
+  cm_st <- data.frame(cm$overall)
+  
+  cm_st <- cm_st %>% rename("OverallStats" = cm.overall)
+  
+  # round the values
+  cm_st$OverallStats <- round(cm_st$OverallStats, 2)
+  
+  # here we also have the rounded percentage values
+  cm_p <- as.data.frame(prop.table(cm$table))
+  cm_d$Perc <- round(cm_p$Freq * 100, 2)
+  
+  # plotting the matrix
+  cm_d_p <-
+    ggplot(data = cm_d, aes(y = Prediction , x =  Actuals, fill = Freq)) +
+    geom_tile() +
+    geom_text(aes(label = paste("", Freq)), color = 'white', size = 4) +
+    theme_light() +
+    guides(fill = FALSE)
+  
+  cm_d_perc <-
+    ggplot(data = cm_d, aes(y = Prediction , x =  Actuals, fill = Freq)) +
+    geom_tile() +
+    geom_text(aes(label = paste("", Perc, "%")), color = 'white', size = 4) +
+    theme_light() +
+    guides(fill = FALSE)
+  
+  # plotting the stats
+  cm_st_p <-  tableGrob(head(cm_st, 2))
+  
+  cm_st_p1 <- tableGrob(cm_class)
+  
+  # all together arrange it on a plot
+  grid.arrange(
+    cm_d_p,
+    cm_st_p,
+    cm_d_perc,
+    cm_st_p1,
+    nrow = 2,
+    ncol = 2,
+    top = textGrob(
+      paste0("Confusion Matrix and Statistics ", modelName),
+      gp = gpar(fontsize = 14, font = 2)
+    ),
+    heights = c(4, 4),
+    widths = c(4, 4)
+  )
+  
+  cm_st$ModelName <- NA
+  cm_st[is.na(cm_st)] <- modelName
+  model.metrics <- rbind(model.metrics, head(cm_st, 2))
+  
+  caret::confusionMatrix(
+    reference = as.factor(test.data$RISK),
+    data = predicted.resp,
+    mode = 'everything',
+    positive = 'L'
+  )
+  
+}
+
+```
+
+### Feature Selection Using Boruta Technique
+
+
+```{r Boruta, r fig1, fig.height = 2, fig.width = 4, fig.align = "center", echo=FALSE, message=FALSE, warning=FALSE}
+
+# Execute Boruta
+var.boruta <-
+  Boruta(
+    as.factor(RISK) ~ .,
+    getImp=getImpExtraZ,
+    data = class.data,
+    doTrace = 2
+  )
+
+# Plot importance based on the Z Scores
+lz <- lapply(1:ncol(var.boruta$ImpHistory), function(i)
+  var.boruta$ImpHistory[is.finite(var.boruta$ImpHistory[, i]), i])
+names(lz) <- colnames(var.boruta$ImpHistory)
+Labels <- sort(sapply(lz, median))
+plot(
+  var.boruta,
+  side = 1,
+  las = 2,
+  labels = names(Labels),
+  at = 1:ncol(var.boruta$ImpHistory),
+  cex.axis = 0.5
+)
+final.boruta <- TentativeRoughFix(var.boruta)
+getSelectedAttributes(final.boruta, withTentative = F)
+boruta.df <- attStats(final.boruta)
+print(boruta.df)
+
+# Get all the variables from Boruta feature selection algorithm
+boruta.df <- cbind(Variables = rownames(boruta.df), boruta.df)
+
+# Filter the data frame based on all the confirmed values and mean varialbe importance > 8
+boruta.df <- boruta.df %>% filter(boruta.df$decision == "Confirmed" & boruta.df$meanImp > 8)
+
+# Create predictor list from the result above
+sel.var.list <- paste(dput(boruta.df$Variables), collapse = " + ")
+
+# Add the predictor list to create the formula
+predictor.var <- "RISK"
+tar.var  <- sel.var.list
+class.formula <- as.formula(paste(predictor.var, paste(tar.var, "+ BIRDCOUNT", collapse=" + "), sep=" ~ "))
+
+print(paste0("Formula Used for classification: ", class.formula))
+
+
+```
+
+### Multinomial Classification using NO sampling
+
+As the dataset is not balanced proportionately we have tried different sampling techiniques to see which model works the best:
+
+* Down-sampling Techinique: Randomly remove instances in the majority class
+
+* Up-sampling Techinique: Randomly replicate instances in the minority class
+
+* Synthetic minority sampling technique (SMOTE): Down samples the majority class and synthesizes new minority instances by interpolating between existing ones
+
+
+```{r Modeling without sampling, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Train Control parameter to be used in the caret list for training. 
+# Has parameters for Cross validation with Kfolds 
+# and allowing parallel execution of learners in the caret list
+
+trControl <- trainControl(
+  method = "cv",
+  number = 5,
+  savePredictions = "final",
+  index = createFolds(as.factor(train.data$RISK), 5),
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary
+)
+
+# Tuning Parameters for XGBoost
+# Hyper parameter values obtained from H2o AutoML
+
+xgbTreeGrid <-
+  expand.grid(
+    nrounds = 600,
+    max_depth = seq(1, 50, by = 5),
+    eta = 0.05,
+    gamma = 0,
+    colsample_bytree = 0.5316,
+    subsample = 1.0,
+    min_child_weight = 1
+  )
+
+# Tuning Parameters for Elastic Net
+# Hyper parameter values obtained from H2o AutoML
+
+glmnetGridElastic <-
+expand.grid(.alpha = 0.3, .lambda = 0.009) ## notice the . before the parameter
+
+# Tuning Parameters for GBM
+# Hyper parameter values obtained from H2o AutoML
+
+gbm.tune.grid <-
+  expand.grid(
+    n.trees = c(401),
+    interaction.depth = c(0, 0.1, 0.2),
+    shrinkage = c(.01, .1, .3),
+    n.minobsinnode = c(5, 10, 15)
+  )
+
+
+set.seed(333)
+
+# Execution of models all happen inside the caret list.
+# As the train Control has allowParallel = TRUE all the models in the list will be executed in parallel.
+
+modelList <- caretList(
+  class.formula,
+  train.data,
+  trControl = trControl,
+  metric = "ROC",
+  verbose = FALSE,
+  tuneList = list(
+
+    ## Do not use custom names in list. Will give prediction error with greedy ensemble. Bug in caret.
+
+    # eXtreme Gradient Boosting
+    xgbTree = caretModelSpec(
+      method = "xgbTree",
+      tuneGrid = xgbTreeGrid,
+      nthread = 8,
+      num_class = 3
+    ),
+    
+    # Elastic, highly correlated with lasso and ridge regressions
+    glmnet = caretModelSpec(method = "glmnet", tuneGrid = glmnetGridElastic),
+    
+     # Random Forest with hyper parameters
+    rf = caretModelSpec(
+      method = "rf",
+      ntree = 5000,
+      tuneLength = 20
+    ),
+    # Gradient Boosting Machine
+    gbm = caretModelSpec(method = "gbm")#, tuneGrid = gbm.tune.grid)
+
+  )
+)
+
+```
+
+### Multinomial Classification using UP sampling
+
+```{r Modeling with upsampling, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Train Control parameter to be used in the caret list for training. 
+# Has parameters for Cross validation with Kfolds 
+# and allowing parallel execution of learners in the caret list
+trControl <- trainControl(
+  method = "cv",
+  number = 5,
+  savePredictions = "final",
+  index = createFolds(as.factor(train.data$RISK), 5),
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary,
+  sampling = "up"
+)
+
+# Tuning Parameters for XGBoost
+# Hyper parameter values obtained from H2o AutoML
+xgbTreeGrid <-
+  expand.grid(
+    nrounds = 600,
+    max_depth = seq(1, 50, by = 5),
+    eta = 0.05,
+    gamma = 0,
+    colsample_bytree = 0.5316,
+    subsample = 1.0,
+    min_child_weight = 1
+  )
+
+# Tuning Parameters for Elastic Net
+# Hyper parameter values obtained from H2o AutoML
+glmnetGridElastic <-
+expand.grid(.alpha = 0.3, .lambda = 0.009) ## notice the . before the parameter
+
+# Tuning Parameters for GBM
+# Hyper parameter values obtained from H2o AutoML
+gbm.tune.grid <-
+  expand.grid(
+    n.trees = c(401),
+    interaction.depth = c(0, 0.1, 0.2),
+    shrinkage = c(.01, .1, .3),
+    n.minobsinnode = c(5, 10, 15)
+  )
+
+# Execution of models all happen inside the caret list.
+# As the train Control has allowParallel = TRUE all the models in the list will be executed in parallel.
+
+set.seed(333)
+
+modelListUp <- caretList(
+  class.formula,
+
+  train.data,
+
+  trControl = trControl,
+
+  metric = "ROC",
+
+  verbose = FALSE,
+
+  tuneList = list(
+
+    ## Do not use custom names in list. Will give prediction error with greedy ensemble. Bug in caret.
+    # eXtreme Gradient Boosting
+    xgbTree = caretModelSpec(
+      method = "xgbTree",
+      tuneGrid = xgbTreeGrid,
+      nthread = 8,
+      num_class = 3
+    ),
+    
+    # Elastic, highly correlated with lasso and ridge regressions
+    glmnet = caretModelSpec(method = "glmnet", tuneGrid = glmnetGridElastic),
+
+    # Random Forest with hyper parameters
+    rf = caretModelSpec(
+      method = "rf",
+      ntree = 5000,
+      tuneLength = 20
+    ),
+    # Gradient Boosting Machine
+    gbm = caretModelSpec(method = "gbm")#, tuneGrid = gbm.tune.grid)
+
+  )
+)
+
+```
+
+### Multinomial Classification using DOWN sampling
+
+```{r Modeling with downsampling, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Train Control parameter to be used in the caret list for training. 
+# Has parameters for Cross validation with Kfolds 
+# and allowing parallel execution of learners in the caret list
+trControl <- trainControl(
+  method = "cv",
+  number = 5,
+  savePredictions = "final",
+  index = createFolds(as.factor(train.data$RISK), 5),
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary,
+  sampling = "down"
+)
+
+# Tuning Parameters for XGBoost
+# Hyper parameter values obtained from H2o AutoML
+xgbTreeGrid <-
+  expand.grid(
+    nrounds = 600,
+    max_depth = seq(1, 50, by = 5),
+    eta = 0.05,
+    gamma = 0,
+    colsample_bytree = 0.5316,
+    subsample = 1.0,
+    min_child_weight = 1
+  )
+
+
+glmnetGridElastic <-
+expand.grid(.alpha = 0.3, .lambda = 0.009) ## notice the . before the parameter
+
+# Tuning Parameters for GBM
+# Hyper parameter values obtained from H2o AutoML
+gbm.tune.grid <-
+  expand.grid(
+    n.trees = c(401),
+    interaction.depth = c(0, 0.1, 0.2),
+    shrinkage = c(.01, .1, .3),
+    n.minobsinnode = c(5, 10, 15)
+  )
+
+
+set.seed(333)
+
+modelListDown <- caretList(
+  class.formula,
+
+  train.data,
+
+  trControl = trControl,
+
+  metric = "ROC",
+
+  verbose = FALSE,
+
+  tuneList = list(
+
+    ## Do not use custom names in list. Will give prediction error with greedy ensemble. Bug in caret.
+    # eXtreme Gradient Boosting
+    xgbTree = caretModelSpec(
+      method = "xgbTree",
+      tuneGrid = xgbTreeGrid,
+      nthread = 8,
+      num_class = 3
+    ),
+    # Elastic, highly correlated with lasso and ridge regressions
+    glmnet = caretModelSpec(method = "glmnet", tuneGrid = glmnetGridElastic),
+
+    # Random Forest with hyper parameters
+    rf = caretModelSpec(
+      method = "rf",
+      ntree = 5000,
+      tuneLength = 20
+    ),
+    # Gradient Boosting Machine
+    gbm = caretModelSpec(method = "gbm")#, tuneGrid = gbm.tune.grid)
+
+  )
+)
+
+```
+
+### Multinomial Classification using SMOTE sampling
+
+```{r Smote, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Train Control parameter to be used in the caret list for training. 
+# Has parameters for Cross validation with Kfolds 
+# and allowing parallel execution of learners in the caret list
+trControl <- trainControl(
+  method = "cv",
+  number = 5,
+  savePredictions = "final",
+  index = createFolds(as.factor(train.data$RISK), 5),
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary,
+  sampling = "smote"
+)
+
+# Tuning Parameters for XGBoost
+# Hyper parameter values obtained from H2o AutoML
+xgbTreeGrid <-
+  expand.grid(
+    nrounds = 600,
+    max_depth = seq(1, 50, by = 5),
+    eta = 0.05,
+    gamma = 0,
+    colsample_bytree = 0.5316,
+    subsample = 1.0,
+    min_child_weight = 1
+  )
+
+
+glmnetGridElastic <-
+expand.grid(.alpha = 0.3, .lambda = 0.009) ## notice the . before the parameter
+
+# Tuning Parameters for GBM
+# Hyper parameter values obtained from H2o AutoML
+gbm.tune.grid <-
+  expand.grid(
+    n.trees = c(401),
+    interaction.depth = c(0, 0.1, 0.2),
+    shrinkage = c(.01, .1, .3),
+    n.minobsinnode = c(5, 10, 15)
+  )
+
+
+set.seed(333)
+
+modelListSmote<- caretList(
+  class.formula,
+
+  train.data,
+
+  trControl = trControl,
+
+  metric = "ROC",
+
+  verbose = FALSE,
+
+  tuneList = list(
+    # eXtreme Gradient Boosting
+    xgbTree = caretModelSpec(
+      method = "xgbTree",
+      tuneGrid = xgbTreeGrid,
+      nthread = 8,
+      num_class = 3
+    ),
+    # Elastic, highly correlated with lasso and ridge regressions
+    glmnet = caretModelSpec(method = "glmnet", tuneGrid = glmnetGridElastic),
+
+    # Random Forest with hyper parameters
+    rf = caretModelSpec(
+      method = "rf",
+      ntree = 5000,
+      tuneLength = 20
+    ),
+    # Gradient Boosting Machine
+    gbm = caretModelSpec(method = "gbm")#, tuneGrid = gbm.tune.grid)
+
+  )
+)
+```
+
+### Validate eXtreme Gradient Boosting for all sampling types
+
+```{r XgbTree Model Validation}
+
+# Validate and Print for no sample, up sample, down sample
+validateAndPrintResult(modelList[['xgbTree']],
+                       test.data,
+                       paste0(airportName, " ", modelList[['xgbTree']][['method']], " nosample"))
+
+validateAndPrintResult(modelListUp[['xgbTree']],
+                       test.data,
+                       paste0(airportName, " ", modelListUp[['xgbTree']][['method']], " upsample"))
+
+validateAndPrintResult(modelListDown[['xgbTree']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['xgbTree']][['method']], " downsample"))
+
+validateAndPrintResult(modelListSmote[['xgbTree']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['xgbTree']][['method']], " smote"))
+
+```
+
+### Validate ElasticNet for all sampling types
+
+```{r glmnet Model}
+# Validate and Print for no sample, up sample, down sample
+validateAndPrintResult(modelList[['glmnet']],
+                       test.data,
+                       paste0(airportName, " ", modelList[['glmnet']][['method']], " nosample"))
+
+validateAndPrintResult(modelListUp[['glmnet']],
+                       test.data,
+                       paste0(airportName, " ", modelListUp[['glmnet']][['method']], " upsample"))
+
+validateAndPrintResult(modelListDown[['glmnet']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['glmnet']][['method']], " downsample"))
+
+validateAndPrintResult(modelListSmote[['glmnet']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['glmnet']][['method']], " smote"))
+
+```
+
+
+### Validate Random Forest for all sampling types
+
+
+```{r Random Forest Model}
+
+# Validate and Print for no sample, up sample, down sample
+validateAndPrintResult(modelList[['rf']],
+                       test.data,
+                       paste0(airportName, " ", modelList[['rf']][['method']], " nosample"))
+
+validateAndPrintResult(modelListUp[['rf']],
+                       test.data,
+                       paste0(airportName, " ", modelListUp[['rf']][['method']], " upsample"))
+
+validateAndPrintResult(modelListDown[['rf']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['rf']][['method']], " downsample"))
+
+validateAndPrintResult(modelListSmote[['rf']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['rf']][['method']], " smote"))
+
+```
+
+
+### Validate Gradient Boosting Machine for all sampling types
+
+
+```{r gbm Model}
+
+# Validate and Print for no sample, up sample, down sample
+validateAndPrintResult(modelList[['gbm']],
+                       test.data,
+                       paste0(airportName, " ", modelList[['gbm']][['method']], " nosample"))
+
+validateAndPrintResult(modelListUp[['gbm']],
+                       test.data,
+                       paste0(airportName, " ", modelListUp[['gbm']][['method']], " upsample"))
+
+validateAndPrintResult(modelListDown[['gbm']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['gbm']][['method']], " downsample"))
+
+validateAndPrintResult(modelListSmote[['gbm']],
+                       test.data,
+                       paste0(airportName, " ", modelListDown[['gbm']][['method']], " smote"))
+
+```
+
+# Save Best Model
+
+```{r Save Best model}
+# Save Model to RDS
+saveRDS(modelList$gbm, "model_gbm_KDFW.RDS")
+
+```
+
+### H2o AutoML
+
+```{r H2o AutoML Create Data}
+
+# h2o.data <- class.data
+# 
+# 
+# # Create the training and test datasets
+# set.seed(100)
+# 
+# h2o.data$RISK <- as.factor(h2o.data$RISK)
+# 
+# # Step 1: Get row numbers for the training data
+# trainRowNumbers.cl <-
+#   createDataPartition(h2o.data$RISK, p = 0.75, list = FALSE)
+# 
+# # Step 2: Create the training  dataset
+# train.data <- h2o.data[trainRowNumbers.cl, ]
+# 
+# # Step 3: Create the test dataset
+# test.data <- h2o.data[-trainRowNumbers.cl, ]
+# 
+# train.data <- as.h2o(train.data)
+# test.data <- as.h2o(test.data)
+# 
+# # Identify predictors and response
+# y <- "RISK"
+# x <- setdiff(names(h2o.data), c("RISK"))
+# 
+# # For binary classification, response should be a factor
+# train.data[,y] <- as.factor(train.data[,y])
+# test.data[,y] <- as.factor(test.data[,y])
+# 
+# # Number of CV folds (to generate level-one data for stacking)
+# nfolds <- 5
+```
+
+```{r H2o AutoML Generate Random Grids}
+# # 2. Generate a random grid of models and stack them together
+# 
+# # Some XGboost/GBM /rf hyperparameters
+# hyper_params <- list(
+#   ntrees = seq(10, 1000, 1),
+#   learn_rate = seq(0.0001, 0.2, 0.0001),
+#   max_depth = seq(1, 20, 1),
+#   sample_rate = seq(0.5, 1.0, 0.0001),
+#   col_sample_rate = seq(0.2, 1.0, 0.0001)
+# )
+# 
+# search_criteria <- list(strategy = "RandomDiscrete",
+#                         max_models = 10)
+# 
+# grid.id <-  as.character(format(Sys.time(), "%S"))
+# 
+# 
+# # Train & Cross-validate a RF
+# rf_grid <- h2o.grid(
+#   algorithm = "drf",
+#   grid_id = paste0("grid_binomial_rf_", grid.id),
+#   x = x,
+#   y = y,
+#   training_frame = train.data,
+#   seed = 100,
+#   nfolds = nfolds,
+#   ntrees = 2500,
+#   fold_assignment = "Modulo",
+#   keep_cross_validation_predictions = TRUE
+# )
+# 
+# 
+# gbm_grid <- h2o.grid(
+#   algorithm = "gbm",
+#   grid_id = paste0("grid_binomial_gbm_", grid.id),
+#   x = x,
+#   y = y,
+#   training_frame = train.data,
+#   # ntrees = seq(10, 1000, 1),
+#   seed = 100,
+#   nfolds = nfolds,
+#   fold_assignment = "Modulo",
+#   keep_cross_validation_predictions = TRUE,
+#   hyper_params = hyper_params,
+#   search_criteria = search_criteria
+# )
+# 
+# 
+# 
+# # Train the grid
+# xgb_grid <- h2o.grid(
+#   algorithm = "xgboost",
+#   grid_id = paste0("grid_binomial_xgb_", grid.id),
+#   x = x,
+#   y = y,
+#   training_frame = train.data,
+#   nfolds = nfolds,
+#   seed = 100,
+#   fold_assignment = "Modulo",
+#   keep_cross_validation_predictions = TRUE,
+#   hyper_params = hyper_params,
+#   search_criteria = search_criteria
+# )
+# 
+# # Train a stacked ensemble using the H2O and XGBoost models from above
+# base.models <- append(gbm_grid@model_ids,
+#                       xgb_grid@model_ids)
+# 
+# # Train a stacked ensemble using the GBM grid
+# ensemble <- h2o.stackedEnsemble(
+#   x = x,
+#   y = y,
+#   model_id = paste0("ensemble_gbm_grid_", grid.id, "_24"),
+#   training_frame = train.data,
+#   base_models = base.models
+# )
+# 
+# # Eval ensemble performance on a test set
+# perf <- h2o.performance(ensemble, newdata = test.data)
+# 
+# # Compare to base learner performance on the test set
+# .getmean_per_class_error <-
+#   function(mm)
+#     h2o.mean_per_class_error(h2o.performance(h2o.getModel(mm), newdata = test.data))
+# 
+# baselearner_aucs <- sapply(base.models, .getmean_per_class_error)
+# baselearner_best_auc_test <- max(baselearner_aucs)
+# ensemble_auc_test <- h2o.mean_per_class_error(perf)
+# print(sprintf("Best Base-learner Test Mean per class error:  %s", baselearner_best_auc_test))
+# print(sprintf("Ensemble Test Mean per class error:  %s", ensemble_auc_test))
+# 
+# # Generate predictions on a test set (if neccessary)
+# pred <- h2o.predict(ensemble, newdata = test.data)
+# 
+# # Sort the grid by CV AUC for GBM
+# get_gbm_grid <- h2o.getGrid(grid_id = gbm_grid@grid_id, sort_by = "mean_per_class_error", decreasing = TRUE)
+# get_gbm_grid
+# gbm_grid_top_model <- get_gbm_grid@summary_table[1, "model_ids"]
+# gbm_grid_top_model
+# 
+# # Sort the grid by CV AUC for XGBOOST
+# get_xgb_grid <- h2o.getGrid(grid_id = xgb_grid@grid_id, sort_by = "mean_per_class_error", decreasing = TRUE)
+# get_xgb_grid
+# xgb_grid_top_model <- get_xgb_grid@summary_table[1, "model_ids"]
+# xgb_grid_top_model
+# 
+# # Sort the grid by CV AUC for XGBOOST
+# get_rf_grid <- h2o.getGrid(grid_id = rf_grid@grid_id, sort_by = "mean_per_class_error", decreasing = TRUE)
+# get_rf_grid
+# rf_grid_top_model <- get_rf_grid@summary_table[1, "model_ids"]
+# rf_grid_top_model
+```
