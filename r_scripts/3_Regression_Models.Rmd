@@ -1,0 +1,776 @@
+---
+title: "Regression Models"
+author: "Team Strikes"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+  code_folding: hide
+  highlight: pygment
+  theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r Check installed packages, echo = FALSE, warning=FALSE, message=FALSE}
+# Creating a vector of packages used within
+packages <- c(
+  'arm',
+  'boot',
+  'Boruta',
+  'car',
+  'caret',
+  'caTools',
+  'data.table',
+  'DMwR',
+  'dplyr',
+  'e1071',
+  'Information',
+  'klaR',
+  'leaps',
+  'lubridate',
+  'magrittr',
+  'MASS',
+  'mctest',
+  'mlbench',
+  'MLeval',
+  'pastecs',
+  'PerformanceAnalytics',
+  'proxy',
+  'pscl',
+  'psych',
+  'ranger',
+  'ROCR',
+  'Rtsne',
+  'scales',
+  'splitstackshape',
+  'tidyselect',
+  'tidyverse',
+  'varrank',
+  'VIM',
+  'zoo',
+  'corrplot',
+  'glmnet',
+  'broom',
+  'DT',
+  'AppliedPredictiveModeling'
+)
+
+# Checking for package installations on the system and installing if not found
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+
+# Including the packages for use
+for(package in packages){
+  library(package, character.only = TRUE)
+}
+
+# # Initiate Parallel
+# registerDoParallel(cores = 4)
+# 
+# # Initiate h2o automl
+# h2o.init()
+
+```
+
+```{r Airport Name, echo=FALSE, message=FALSE, warning=FALSE}
+airportName <- "KDEN"
+
+```
+
+```{r Create Model Data, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+########### Data Pre-Processing  ###########
+# Read dataset from RDS and filter data for Denver International Airport
+reg.data <- readRDS("../data/AIRFIELDS_MASTER_V2.RDS")
+
+# Rename Airfield and filter data by airfield
+reg.data <- reg.data %>% rename(AIRFIELD = `AIRPORT ID`)
+
+reg.data <- reg.data %>% filter(reg.data$AIRFIELD == airportName)
+
+# Reorder data frame by Date 
+reg.data <- reg.data[order(reg.data$DATE), ]
+
+# Remove outliers or missing data
+reg.data <- reg.data[!(reg.data$SLP == 9999.9 |
+                         reg.data$MXSPD == 999.9 |
+                         reg.data$PRCP == 99.99),]
+
+# Create lag variables for precipitation and Temperature
+reg.data$PRCP_LAG_1 <- lag(reg.data$PRCP, k = 1)
+reg.data$TEMP_LAG_1 <- lag(reg.data$TEMP, k = 1)
+
+# Discard all the observations with NA values in any column
+reg.data <- reg.data[complete.cases(reg.data),]
+
+# Remove unused variables in the regression Analysis
+reg.data <-
+  subset(
+    reg.data,
+    select = -c(
+      DATE,
+      YEAR,
+      SNOW_ICE,
+      STRIKE,
+      WEEK,
+      RATIO,
+      RATIOP,
+      WDSP,
+      DEWP,
+      MONTH,
+      THUNDER,
+      HAIL,
+      DAYOFWEEK,
+      AIRFIELD,
+      RISK,
+      VISIB
+    )
+  )
+
+```
+
+```{r Test Train Splits, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Create the training and test datasets
+set.seed(500)
+
+# Step 1: Get row numbers for the training data and perform a 70-30 split
+trainRowNumbers <-
+  createDataPartition(reg.data$STRIKECOUNT, p = 0.70, list = FALSE)
+
+# Step 2: Create the training  dataset
+train.data <- reg.data[trainRowNumbers, ]
+
+# Step 3: Create the test dataset
+test.data <- reg.data[-trainRowNumbers, ]
+
+```
+
+```{r Regression Formula, echo=FALSE, message=FALSE, warning=FALSE}
+# Regression Formula for use in all the models
+reg.formula <-
+  STRIKECOUNT ~  FLIGHTCOUNT + TEMP + PRCP + SEASON + SLP + MXSPD + PRCP_LAG_1 + TEMP_LAG_1 + BIRDCOUNT + FOG + RAIN_DRIZZLE
+
+```
+
+
+```{r Model Metrics Data Frame, echo=FALSE, message=FALSE, warning=FALSE}
+# Create an Empty Dataframe for capturing the metrics of each model execution
+model.metrics <-
+  data.frame(
+    "Model_Name" = character(0),
+    "RMSE" = numeric(0),
+    "MAE" = numeric(0),
+    "Normalized_MSE" = numeric(0),
+    "Normalized_MAE" = numeric(0),
+    stringsAsFactors = FALSE
+  )
+
+```
+
+```{r Function Check Predictions, echo=FALSE, message=FALSE, warning=FALSE}
+########################################################################
+# Check Regression Model outcomes True positives and False positives
+
+# Input:  Validation data with all the Raw predictions
+#         Model Method Learner
+
+# Output: Count of Positives and Negatives
+########################################################################   
+
+pred.check <- function (check.valid.data, model.name) {
+  pred.fail <- check.valid.data %>%
+    dplyr::select(STRIKECOUNT,
+                  round.model.predictions., model.predictions) %>%
+    mutate("check" = round.model.predictions. == STRIKECOUNT,
+           model.name = model.name)
+  return(pred.fail)
+}
+```
+
+
+```{r Function Save Model Metrics, echo=FALSE, message=FALSE, warning=FALSE}
+
+########################################################################
+# Save Regression Model Metrics like RMSE, MAE, NMSE, NMAE
+
+# Input:  Model Predictions
+#         Test data
+#         Model Learner Name
+
+# Output: List with Model method learner and the metrics for each model
+########################################################################          
+
+saveModelMetrics <-
+  function(model.predictions,
+           data,
+           model.name) {
+    # rmse
+    rmse <- round(sqrt(mean((data$STRIKECOUNT - model.predictions) ^ 2)), 3)
+    
+    # Mean Absolute Error (MAE) - average absolute deviation between the predictions and the true values
+    mae <- round(mean(abs(data$STRIKECOUNT - model.predictions)), 3)
+    
+    # Normalized Mean Squared Error (NMSE)
+    nmse <- round(sum((data$STRIKECOUNT - model.predictions) ^ 2) / sum((
+      data$STRIKECOUNT - mean(data$STRIKECOUNT)) ^ 2), 3)
+    
+    #Normalized Mean Absolute Error (NMAE)
+    nmae <- round(sum(abs(data$STRIKECOUNT - model.predictions)) / sum(abs(
+      data$STRIKECOUNT - mean(data$STRIKECOUNT))), 3)
+    
+    # combine all the above validation metrics
+    model.summary <- c(model.name,
+                       rmse,
+                       mae,
+                       nmse,
+                       nmae)
+    
+    # Return Model Metrics to the caller
+    return(model.summary)
+  }
+
+```
+
+
+```{r Validate Model Function, echo=FALSE, message=FALSE, warning=FALSE}
+
+########################################################################
+# Validate Regression Model Metrics - Uses all the above functions to 
+# consolidate the results
+
+# Input:  Model
+#         Model Predictions
+#         Test data
+#         Model Learner Name
+
+# Output: Dataframe with predictions for the specific model executed
+########################################################################   
+
+validate.models <- function(model, model.predictions, data, model.name) {
+  
+  check.data <- data
+  
+  # actual vs predicted graph
+  validate <- data.frame(data$STRIKECOUNT, model.predictions, round(model.predictions))
+  
+  check.data <- cbind(check.data, validate)
+  
+  names(validate) <- c("actual", "predicted", "rounded_predicted")
+  
+  # decile predictions
+  validate$bucket <-
+    with(validate,
+         cut(
+           predicted,
+           breaks = quantile(predicted, probs = seq.int(0, 1, 0.1)),
+           include.lowest = TRUE,
+           labels = c(1:10)
+         ))
+  
+  
+  plot(
+    validate$rounded_predicted,
+    validate$actual,
+    xlab = "Predicted",
+    ylab = "Actual",
+    main = paste("Predicted vs Actual for ", model.name),
+    col = c("red", "blue"),
+    pch = 20
+  )
+  abline(0, 1, col = "darkorange", lwd = 2)
+  legend(
+    "topleft",
+    c("Actual", "Predicted"),
+    col = c("red", "blue"),
+    lwd = c(1.5, 1.5),
+    bty = "n",
+    cex = 0.8
+  )
+  
+  # average values of actual and predicted by decile
+  validate <-
+    aggregate(validate[, c("actual", "predicted")], by = list(validate$bucket), FUN = mean)
+  
+  print(validate)
+  
+  # plot the regression residual and predictino plots
+  plot(
+    validate$predicted,
+    col = "red",
+    type = "l",
+    lwd = 1.5,
+    ylab = "STRIKE COUNT",
+    xlab = "Predicted Decile",
+    main = paste("Predicted vs Actual by Deciles for ", model.name)
+  )
+  lines(validate$actual, col = "blue", lwd = 1.5)
+  legend(
+    "topleft",
+    c("Actual", "Predicted"),
+    col = c("blue", "red"),
+    lwd = c(1.5, 1.5),
+    bty = "n",
+    cex = 0.8
+  )
+  # Return dataframe with predictions
+  return(check.data)
+}
+```
+
+### Regression Models
+
+##### Linear Regression
+
+```{r Linear Regression, echo=FALSE, message=FALSE, warning=FALSE}
+# Linear Regression
+
+model.name <- "Linear Regression"
+rm(check.test.data)
+
+model.lm <- train(
+  reg.formula,
+  data = train.data,
+  method = "lm" ,
+  metric = "RMSE",
+  trControl = trainControl(
+    method = "cv",
+    number = 5,
+    index = createFolds(as.factor(train.data$STRIKECOUNT), 5),
+    allowParallel = TRUE
+  ),
+  tuneLength = 5
+)
+
+# Print model summary on console 
+summary(model.lm)
+model.lm
+
+# predict on test data
+model.predictions <- predict(model.lm, test.data, type = "raw")
+
+# Save Model metrics in dataframe
+model.metrics[nrow(model.metrics) + 1,] <-
+  saveModelMetrics(model.predictions, test.data, model.name)
+
+# Validate and plot model outputs
+check.test.data <-
+  validate.models(model.lm, model.predictions, test.data, model.name)
+
+#Creates a prediction table that checks how many are false where we failed to predict a strike totaling 75
+pred.glm<-pred.check(check.test.data,model.name)
+test <- pred.glm %>% filter(check == TRUE & STRIKECOUNT != 0)
+
+
+```
+
+##### Negative Binomial Regression
+
+```{r Negative Binomial, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Negative Binomial Regression
+model.name <- "Negative Binomial"
+rm(check.test.data)
+
+# Grid Parameter
+grid <- expand.grid(link = "log")
+
+model.glm.nb <- train(
+  reg.formula,
+  data = train.data,
+  method = "glm.nb" ,
+  metric = "RMSE",
+  trControl = trainControl(
+    method = "cv",
+    number = 5,
+    index = createFolds(as.factor(train.data$STRIKECOUNT), 5),
+    allowParallel = TRUE
+  ),
+  tuneLength = 5,
+  tuneGrid = grid
+)
+
+summary(model.glm.nb)
+
+# predict on test data
+model.predictions <- predict(model.glm.nb, test.data, type = "raw")
+
+# Save Model metrics in dataframe
+model.metrics[nrow(model.metrics) + 1,] <-
+  saveModelMetrics(model.predictions, test.data, model.name)
+
+# Validate and plot model outputs
+check.test.data <-
+    validate.models(model.glm.nb, model.predictions, test.data, model.name)
+
+#Creates a prediction table that checks how many are false where we failed to predict a strike 
+pred.nb<-pred.check(check.test.data,model.name)
+
+
+```
+
+##### Random Forest Regressor
+
+```{r Random Forest Regressor, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Random Forest Regressor
+model.name <- "Random Forest"
+rm(check.test.data)
+
+# Hyperparameters
+mtry <- sqrt(ncol(train.data))
+grid <- expand.grid(.mtry = mtry)
+
+# Random forest model
+model.rf <- train(
+  reg.formula,
+  data = train.data,
+  method = "rf" ,
+  metric = "RMSE",
+  trControl = trainControl(
+    method = "cv",
+    number = 5,
+    index = createFolds(as.factor(train.data$STRIKECOUNT), 5),
+    allowParallel = TRUE
+  ),
+  tuneLength = 5,
+  tunegrid = grid
+)
+model.rf
+summary(model.rf)
+
+# predict on test data
+model.predictions <- predict(model.rf, test.data, type = "raw")
+
+# Save Model metrics in dataframe
+model.metrics[nrow(model.metrics) + 1,] <-
+  saveModelMetrics(model.predictions, test.data, model.name)
+
+# Validate and plot model outputs
+check.test.data <-
+  validate.models(model.rf, model.predictions, test.data, model.name)
+
+#Creates a prediction table that checks how many are false where we failed to predict a strike
+pred.rf <- pred.check(check.test.data, model.name)
+
+```
+
+
+##### Support Vector Machines Linear Regression
+
+```{r SVM Regression, echo=FALSE, message=FALSE, warning=FALSE}
+#SVM Linear Regressor
+model.name <- "SVM Linear Regressor"
+rm(check.test.data)
+
+model.svm <- train(
+  reg.formula,
+  data = train.data,
+  method = "svmLinear2" ,
+  metric = "RMSE",
+  trControl = trainControl(
+    method = "cv",
+    number = 5,
+    index = createFolds(as.factor(train.data$STRIKECOUNT), 5),
+    allowParallel = TRUE
+  ),
+  tuneLength = 5
+  # tunegrid = data.frame(cost = c(.25, .5, 1))
+)
+
+model.svm
+summary(model.svm)
+
+# predict on test data
+model.predictions <- predict(model.svm, test.data, type = "raw")
+
+# Save Model metrics in dataframe
+model.metrics[nrow(model.metrics) + 1,] <-
+  saveModelMetrics(model.predictions, test.data, model.name)
+
+# Validate and plot model outputs
+check.test.data <-
+  validate.models(model.svm, model.predictions, test.data, model.name)
+
+#Creates a prediction table that checks how many are false where we failed to predict a strike
+pred.svm <- pred.check(check.test.data, model.name)
+
+
+```
+
+##### eXtreme Gradient Boosting Regressor
+
+```{r XGBoost Regressor, echo=FALSE, message=FALSE, warning=FALSE}
+
+# XGBoost Regressor
+model.name <- "XGBoost Regressor"
+rm(check.test.data)
+
+# Copy reg.data to a new dataframe
+# We need to perform the below steps as XGBoost does not allow text values 
+# and does not convert text to factors automatically
+
+xgb.data <- reg.data
+
+# one-hot-encoding categorical features
+ohe_feats = c('SEASON')
+
+# Create dummies
+dummies <- dummyVars(~ SEASON, data = xgb.data)
+df.dummies <- as.data.frame(predict(dummies, newdata = xgb.data))
+
+# Merge Dummies to data frame
+xgb.data <-
+  cbind(xgb.data[, -c(which(colnames(xgb.data) %in% ohe_feats))], df.dummies)
+
+# Create the training and test datasets
+set.seed(500)
+
+# Step 1: Get row numbers for the training data
+trainRowNumbers <-
+  createDataPartition(xgb.data$STRIKECOUNT, p = 0.70, list = FALSE)
+
+# Step 2: Create the training  dataset
+train.data <- xgb.data[trainRowNumbers, ]
+
+# Step 3: Create the test dataset
+test.data <- xgb.data[-trainRowNumbers, ]
+
+
+trcontrol.xgb = trainControl(
+  method = "cv",
+  number = 5,
+  index = createFolds(as.factor(train.data$STRIKECOUNT), 5),
+  allowParallel = TRUE,
+  verboseIter = TRUE,
+  returnData = TRUE
+)
+
+xgbGrid <-
+  expand.grid(
+    nrounds = c(100, 200),
+    max_depth = c(10, 15, 20, 25),
+    colsample_bytree = seq(0.1, 0.9, length.out = 5),
+    eta = 0.1,
+    gamma = 0,
+    min_child_weight = 1,
+    subsample = 1
+  )
+
+model.xgb = train(
+  STRIKECOUNT ~ .,
+  data = train.data,
+  trControl = trcontrol.xgb,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+
+model.xgb$bestTune
+model.xgb
+
+# predict on test data
+model.predictions <- predict(model.xgb, test.data)
+
+# Save Model metrics in dataframe
+model.metrics[nrow(model.metrics) + 1,] <-
+  saveModelMetrics(model.predictions, test.data, model.name)
+
+# Validate and plot model outputs
+check.test.data <-
+  validate.models(model.xgb, model.predictions, test.data, model.name)
+
+# Creates a prediction table that checks how many are false where we failed to predict a strike
+pred.xgb <- pred.check(check.test.data, model.name)
+
+
+```
+
+#### Print Results
+
+```{r}
+# # call web output with correct column names
+datatable(
+  model.metrics,
+  options = list(columnDefs = list(list(
+    className = 'dt-left', targets = c(5, 4, 3, 2, 1, 0)
+  )),
+  pageLength = length(model.metrics),
+  order = list(list(2, 'desc'))),
+  caption = paste('Regression results from caret models', Sys.time()),
+  class = 'cell-border stripe'
+) 
+```
+
+##### H2o AutoML for tune Parameters
+
+```{r H2o AutoMl}
+# models.reg <- c( "glm", "lm","glmnet", "glmboost", "bayesglm", "rf")
+# 
+# # register parallel front-end
+# cl.reg <- makeCluster(4)
+# 
+# registerDoParallel(cl.reg)
+# 
+# # use lapply/loop to run everything
+# reg.train <- lapply(models.reg, function(i)
+# {
+#   cat("----------------------------------------------------",
+#       "\n")
+#   
+#   set.seed(123)
+#   cat(i, " <- loaded\n")
+#   
+#   tr <-
+#     train(
+#       reg.formula,
+#       train.data,
+#       method = i,
+#       trControl = trainControl(
+#         method = "cv",
+#         number = 5,
+#         verboseIter = TRUE,
+#         allowParallel = TRUE
+#       ),
+#       tuneLength = 5
+#     )
+# })
+# 
+# 
+# r2 <- lapply(1:length(reg.train), function(i)
+# {
+#   cat(sprintf("%-20s", (models.reg[i])))
+# 
+#   cat(round(reg.train[[i]]$results$Rsquared[which.min(reg.train[[i]]$results$RMSE)], 4), "\t")
+# 
+#   cat(round(reg.train[[i]]$results$RMSE[which.min(reg.train[[i]]$results$RMSE)], 4), "\t")
+#   cat(reg.train[[i]]$times$everything[3], "\n")
+# })
+# 
+# # stop cluster and register sequntial front end
+# stopCluster(cl.reg)
+# 
+# registerDoSEQ()
+# 
+# 
+# # preallocate data types
+# i = 1
+# MAX = length(reg.train)
+# 
+# Name <- character() # Name
+# R2 <- numeric()   # R2
+# RMSE <- numeric()   # RMSE
+# MAE  <- numeric()   # MAE
+# Time <- numeric()   # time [s]
+# ModelName <- character() # long model name
+# 
+# # fill data and check indexes and NA
+# for (i in 1:length(reg.train)) {
+#   Name[i] <- reg.train[[i]]$method
+#   R2[i] <-
+#     as.numeric(reg.train[[i]]$results$Rsquared[which.min(reg.train[[i]]$results$RMSE)])
+#   RMSE[i] <-
+#     as.numeric(reg.train[[i]]$results$RMSE[which.min(reg.train[[i]]$results$RMSE)])
+#   MAE[i] <-
+#     as.numeric(reg.train[[i]]$results$MAE[which.min(reg.train[[i]]$results$MAE)])
+#   Time[i] <- as.numeric(reg.train[[i]]$times$everything[3])
+#   ModelName[i] <- reg.train[[i]]$modelInfo$label
+# }
+# 
+# # coerce to data frame
+# results <- data.frame(Name, R2, RMSE, MAE, Time, ModelName, stringsAsFactors = FALSE)
+# 
+# # call web output with correct column names
+# datatable(
+#   results,
+#   options = list(columnDefs = list(list(
+#     className = 'dt-left', targets = c(5, 4, 3, 2, 1, 0)
+#   )),
+#   pageLength = MAX,
+#   order = list(list(2, 'desc'))),
+#   caption = paste('Regression results from caret models', Sys.time()),
+#   class = 'cell-border stripe'
+# )  %>%
+#   formatRound('R2', 5) %>%
+#   formatRound('RMSE', 5) %>%
+#   formatRound('MAE', 5) %>%
+#   formatRound('Time', 5) %>%
+#   formatStyle(
+#     2,
+#     background = styleColorBar(R2, 'steelblue'),
+#     backgroundSize = '100% 90%',
+#     backgroundRepeat = 'no-repeat',
+#     backgroundPosition = 'center'
+#   )
+```
+
+```{r H2o Create data}
+# h2o.data <- reg.data
+# 
+# h2o.data <- h2o.data %>% select(FLIGHTCOUNT,  TEMP, PRCP, VISIB, SEASON, DEWP, SLP, WDSP, STRIKECOUNT, TEMP_LAG_1, PRCP_LAG_1)
+# 
+# # Create the training and test datasets
+# set.seed(100)
+# 
+# # Step 1: Get row numbers for the training data
+# trainRowNumbers.cl <-
+#   createDataPartition(h2o.data$STRIKECOUNT, p = 0.75, list = FALSE)
+# 
+# # Step 2: Create the training  dataset
+# train.data <- h2o.data[trainRowNumbers.cl, ]
+# 
+# # Step 3: Create the test dataset
+# test.data <- h2o.data[-trainRowNumbers.cl, ]
+# 
+# train.data <- as.h2o(train.data)
+# test.data <- as.h2o(test.data)
+# 
+# # Identify predictors and response
+# y <- "STRIKECOUNT"
+# x <- setdiff(names(h2o.data), c("STRIKECOUNT"))
+# 
+# # For binary classification, response should be a factor
+# # train.data[,y] <- as.factor(train.data[,y])
+# # test.data[,y] <- as.factor(test.data[,y])
+# 
+# # Number of CV folds (to generate level-one data for stacking)
+# nfolds <- 5
+```
+
+```{r H2o Get Model List}
+# # Use AutoML to find a list of candidate models (i.e., leaderboard)
+# auto_ml <- h2o.automl(
+#   x = x,
+#   y = y,
+#   training_frame = train.data,
+#   nfolds = 5,
+#   max_runtime_secs = 60 * 120,
+#   max_models = 10,
+#   keep_cross_validation_predictions = TRUE,
+#   sort_metric = "rmse",
+#   seed = 123,
+#   stopping_rounds = 50,
+#   stopping_metric = "rmse",
+#   stopping_tolerance = 0
+# )
+# 
+# # Assess the leader board; the following truncates the results to show the top 
+# # and bottom 15 models. You can get the top model with auto_ml@leader
+# auto_ml@leaderboard %>% 
+#   as.data.frame() %>%
+#   dplyr::select(model_id, rmse)
+# 
+# 
+# pred <- as.data.frame(h2o.predict(auto_ml, test.data))
+# 
+# # test.data <- cbind(test.data, pred$predict)
+# # 
+# # test.data <- as.data.frame(test.data)
+
+```
+
+

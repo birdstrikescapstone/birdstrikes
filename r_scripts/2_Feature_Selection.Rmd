@@ -1,0 +1,390 @@
+---
+title: "Feature Selection"
+author: "Team Strikes"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+  code_folding: hide
+  highlight: pygment
+  theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Check installed packages, echo = FALSE, warning=FALSE, message=FALSE}
+# Creating a vector of packages used within
+packages <- c(
+  'Boruta',
+  'caret',
+  'dplyr',
+  'leaps',
+  'lubridate',
+  'magrittr',
+  'mctest',
+  'psych',
+  'ranger',
+  'ROCR',
+  'tidyverse',
+  'varrank',
+  'corrplot',
+  'VIM',
+  'glmnet',
+  'AppliedPredictiveModeling',
+  'h2o',
+  'lime',
+  'DT',
+  'zoo',
+  'RColorBrewer',
+  'mlbench',
+  "corrplot"
+)
+
+# Checking for package installations on the system and installing if not found
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+
+# Including the packages for use
+for(package in packages){
+  library(package, character.only = TRUE)
+}
+
+# Initiate h2o automl
+h2o.init()
+
+```
+
+### Data Understandingand Aggregation
+
+We establish meaningful spatial relationships amongst four datasets: bird strikes, bird count, flight details, and weather. We joined these data into one master dataset, aggregated daily to ensure variable cohesiveness as well as model output effectiveness.
+
+1.	Bird Strikes –We obtained the full wildlife strike dataset from the Federal Aviation Administration (FAA) and consider it to be our primary data source. The FAA Wildlife Strike Database covers 92 attributes for 211,000 recorded observations of any wildlife strike dating back to 1990.Some key attributes include airfield, operator, number of engines, altitude, and incident date.
+
+2.	Bird Count –To baseline our bird strike information, we obtained the total count of observed birds from an online global database, called eBird, that is maintained as part of a project from the Cornell Lab of Ornithology. We aggregated this information by date and joined relevant attributes, such as sighting longitude and latitude, type of species, and most importantly, the bird count, to our master dataset.
+
+3.	Flight Details–To supplement our primary dataset, we obtained flight specifics from the Bureau of Transportation Statistics by the US Department of Transportation. Details include flight identification information, arrival and departure information, and time delays.
+
+4.	Weather –We queried weather data from the National Oceanic and Atmospheric Administration by the US Department of Commerce in order to enhance our master dataset with strike conditions. Weather variables, such as sea level pressure, visibility, temperature, precipitation, and wind speed, allow us to understand the correlation or effect of environmental conditions on bird strikes.
+
+For modeling purposes, we are analyzing the data by aggregating the data by Day and Time. Multiple regression and classification techniques will be implemented to predict the strike counts or the probability of a strike respectively based on the business understanding. To be able to model the outcomes effectively, some basic analysis will be performed on the dataset to remove noise, selection bias and high variance. Below are few of the techniques we will follow to understand more about data. 
+
+1) Validating the Non zero Variance among all the variables in the dataset. 
+
+2) Correlations among all the continous variables.
+
+3) Checking the variance inflation factors amoung the continuous variables for regression analysis.
+
+4) Identifying the importance of variables based on the target variables. 
+
+
+### Data Processing
+
+Before we start modeling we aggregate the data by day and remove all the insignificant from the original dataset. Also, split the date column into day, month, year and week of year and bind the columns to the original dataset.
+
+```{r Airport Name}
+airportName <- "KDEN"
+```
+
+
+```{r Model Data by Day}
+
+########### Data Pre-Processing  ###########
+# Read dataset from RDS and filter data for just Denver International Airport
+model.data.day <- readRDS("../data/AIRFIELDS_MASTER_V2.RDS")
+
+model.data.day <- model.data.day %>% rename(AIRFIELD = `AIRPORT ID`)
+
+model.data.day <- model.data.day %>% filter(model.data.day$AIRFIELD == airportName)
+
+```
+
+### Check Non Zero Variance Predictors
+
+Non-zero variance technique performs multiple checks on predictors and provides information on the variables which are constants or have very little variation across all the observations. nearZeroVar(nzv function) from the caret package removes 
+
+1) Predictors that have one unique value across samples (zero variance predictors).
+
+2) Predictors with few unique values relative to the number of observations. 
+
+3) Large ratio of the frequency of the most common value to the frequency of the second most common value (near-zero variance predictors).
+
+```{r Non Zero Variance}
+
+nzv <- nearZeroVar(model.data.day, saveMetrics = TRUE)
+
+nzv[nzv[, "zeroVar"] > 0, ] # Check for zero variance predictors. None
+
+nzv[nzv[, "zeroVar"] + nzv[, "nzv"] > 0, ] # Check for near-zero variance predictors
+```
+
+As the above code returned no results we are now certain that there is variablility in the data relative to all the samples and the variability is signification among all unique observations in each column. 
+
+### Correlation Plots
+
+We now look at how the features are correlated with each other and draw some conclusions based on the results. 
+
+
+```{r Correlation Function}
+#External Plot for Corr Plot 
+source("http://www.sthda.com/upload/rquery_cormat.r")
+
+# Consider only numeric columns or corelation plots.
+corr.plot.fn <- function(corr.data) {
+  corr.list <-
+    rquery.cormat(corr.data, type = "flatten", graph = FALSE)
+  cormat <- rquery.cormat(corr.data, graphType = "heatmap")
+  rquery.cormat(corr.data, type = "full")
+  corr.list$r
+}
+
+```
+
+
+```{r Correlation Plot}
+
+# Correlation Plot with all features
+corr.data <- model.data.day %>% dplyr::select(BIRDCOUNT,
+                                   FLIGHTCOUNT,
+                                   TEMP,
+                                   DEWP,
+                                   SLP,
+                                   VISIB,
+                                   WDSP,
+                                   MXSPD,
+                                   PRCP,
+                                   STRIKECOUNT)
+
+# Print correlation plot
+corr.plot.fn(corr.data)
+
+```
+
+Based on the above plot, Temperature and Dew point are positively and strongly correlated with each other. Max wind speed and wind speed are also postively strongly correlated with each other. Temperature and visibility are also correlated to with a correlation coefficient of 0.38 and slight positive correlation
+
+With the above understanding we may want to remove the highly correlated variables and check if there are any more strongly correlated variables which surface up.
+
+```{r Corr Plot with revised variable list}
+
+# Correlation Plot after removing highly correlated features CloudH, CoverH, Visibility
+corr.data <- model.data.day %>% dplyr::select(BIRDCOUNT,
+                                              FLIGHTCOUNT,
+                                              TEMP,
+                                              SLP,
+                                              MXSPD,
+                                              PRCP,
+                                              STRIKECOUNT)
+
+# Print correlation plot
+corr.plot.fn(corr.data)
+
+```
+
+In the new correlation plot we obtained after removing the highly correlated feature Dew Point, Wind speed and Visibility, we now see that there are no more stronger correlations between any variables. With this understanding, **Dew Point**, **Wind Speed** and **Visibility** may be the variables to be eliminated but we may want to see if any other statistical techniques may provide a similar outcome.
+
+
+## Variable Importance Analysis for Classification Models
+
+### Variable Importance using Boruta
+
+##### How does this algorithm work?
+
+1) Firstly, it adds randomness to the given data set by creating shuffled copies of all features (which are called shadow features).
+
+2) Then, it trains a random forest classifier on the extended data set and applies a feature importance measure (the default is Mean Decrease Accuracy) to evaluate the importance of each feature where higher means more important.
+
+3) At every iteration, it checks whether a real feature has a higher importance than the best of its shadow features (i.e. whether the feature has a higher Z score than the maximum Z score of its shadow features) and constantly removes features which are deemed highly unimportant.
+
+4) Finally, the algorithm stops either when all features gets confirmed or rejected or it reaches a specified limit of random forest runs.
+
+```{r Boruta Multinomial}
+# Execute Boruta for Multinomial classification
+var.boruta <-
+  Boruta(
+    as.factor(RISK) ~ BIRDCOUNT + TEMP + SLP + PRCP + SEASON + MXSPD + PRCP + FOG + RAIN_DRIZZLE + HAIL + THUNDER,
+    getImp=getImpExtraZ,
+    data = model.data.day,
+    doTrace = 2
+  )
+
+# Plot importance based on the Z Scores
+lz <- lapply(1:ncol(var.boruta$ImpHistory), function(i)
+  var.boruta$ImpHistory[is.finite(var.boruta$ImpHistory[, i]), i])
+names(lz) <- colnames(var.boruta$ImpHistory)
+Labels <- sort(sapply(lz, median))
+plot(
+  var.boruta,
+  side = 1,
+  las = 2,
+  labels = names(Labels),
+  at = 1:ncol(var.boruta$ImpHistory),
+  cex.axis = 0.7
+)
+final.boruta <- TentativeRoughFix(var.boruta)
+getSelectedAttributes(final.boruta, withTentative = F)
+boruta.df <- attStats(final.boruta)
+# Print all the confirmed variables with their coefficients
+print(boruta.df)
+```
+
+Blue boxplots correspond to minimal, average and maximum Z score of a shadow attribute. Red, yellow and green boxplots represent Z scores of rejected, tentative and confirmed attributes respectively.
+
+
+```{r H20 AutoMl Variable Selection for Multinomial Classification}
+
+# Identify predictors and response
+y <- "RISK"
+x <- setdiff(names(model.data.day), c("STRIKE", "STRIKECOUNT", "YEAR", "DAYOFWEEK", "HAIL", "DATE", "WSPD", "VISIB", "THUNDER", "DEWP", "MONTH", "RATIO", "RATIOP", "RATIOW", "WEEK", "FLIGHTCOUNT"))
+
+# For binary classification, response should be a factor
+model.data.day[, y] <- as.factor(model.data.day[, y])
+
+# Run AutoML for 10 models
+aml <- h2o.automl(x = x, y = y,
+                  training_frame = as.h2o(model.data.day),
+                  max_models = 10,
+                  nfolds = 5,
+                  seed = 100)
+
+# View the AutoML Leaderboard
+lb <- aml@leaderboard
+print(lb, n = nrow(lb))
+
+# Get model ids for all models in the AutoML Leaderboard
+model_ids <- as.data.frame(lb$model_id)[,1]
+
+# View variable importance for all the models (besides Stacked Ensemble)
+for (model_id in model_ids) {
+  print(model_id)
+  m <- h2o.getModel(model_id)
+  h2o.varimp(m)
+  h2o.varimp_plot(m)
+}
+
+```
+
+
+### Feature Selection for Regression Models
+
+
+#### Variance Inflation Factor
+
+
+```{r VIF Function}
+
+#VIF Function
+VIF <-
+  function(linear.model,
+           no.intercept = FALSE,
+           all.diagnostics = FALSE,
+           plot = FALSE) {
+    if (no.intercept == FALSE)
+      design.matrix <- model.matrix(linear.model)[, -1]
+    if (no.intercept == TRUE)
+      design.matrix <- model.matrix(linear.model)
+    if (plot == TRUE)
+      mc.plot(design.matrix, linear.model$model[1])
+    if (all.diagnostics == FALSE)
+      output <-
+        imcdiag(design.matrix,
+                linear.model$model[1],
+                method = 'VIF')$idiags[, 1]
+    if (all.diagnostics == TRUE)
+      output <-
+        imcdiag(design.matrix, linear.model$model[1])
+    output
+  }
+```
+
+
+```{r VIF}
+# Select numeric variables for VIF
+set.seed(123)
+strikes.sample <-
+  model.data.day[, c(
+    "BIRDCOUNT",
+    "FLIGHTCOUNT",
+    "TEMP",
+    "DEWP",
+    "SLP" ,
+    "VISIB"  ,
+    "WDSP" ,
+    "MXSPD",
+    "PRCP",
+    "STRIKECOUNT"
+  )]
+
+# Convert StrikeCount to numeric
+strikes.sample$STRIKECOUNT <- as.numeric(strikes.sample$STRIKECOUNT)
+
+# Fit the variables on logit
+fit <- glm(STRIKECOUNT ~ ., data = strikes.sample)
+
+# Check the Variance using VIF
+VIF(fit, all.diagnostics = TRUE, plot = TRUE)
+
+```
+
+
+### Variable Importance using Boruta for Regression
+
+
+```{r Boruta for Regression}
+# Run Boruta on regression variables
+var.boruta <-
+  Boruta(
+    STRIKECOUNT ~  BIRDCOUNT + FLIGHTCOUNT + MONTH + TEMP + VISIB + SLP + SEASON + MXSPD + PRCP,
+    data = model.data.day,
+    doTrace = 2
+  )
+
+# Plot Important variables on a box plot
+lz <- lapply(1:ncol(var.boruta$ImpHistory), function(i)
+  var.boruta$ImpHistory[is.finite(var.boruta$ImpHistory[, i]), i])
+names(lz) <- colnames(var.boruta$ImpHistory)
+Labels <- sort(sapply(lz, median))
+plot(
+  var.boruta,
+  side = 1,
+  las = 2,
+  labels = names(Labels),
+  at = 1:ncol(var.boruta$ImpHistory),
+  cex.axis = 0.7
+)
+
+final.boruta <- TentativeRoughFix(var.boruta)
+getSelectedAttributes(final.boruta, withTentative = F)
+boruta.df <- attStats(final.boruta)
+# Print all the confirmed variables with their coefficients
+print(boruta.df)
+
+
+```
+
+
+### Stepwise feature selection using glmStepAIC
+
+
+```{r Stepwise AIC}
+# Fit a logistic regression model with stepwise AIC
+
+# This code takes a very long time to execute if WeekOfYear included
+glmStepAIC <-
+  train(
+    STRIKECOUNT ~  BIRDCOUNT + FLIGHTCOUNT + TEMP + VISIB + SLP + SEASON + MXSPD + PRCP,
+    data = model.data.day,
+    method = "glmStepAIC",
+    allowParallel = TRUE
+  )
+# Print summary
+summary(glmStepAIC)
+
+# Get variable importance with coefficients
+varImp(glmStepAIC)
+
+# Plot variable importance
+plot(varImp(glmStepAIC))
+```
+
+
