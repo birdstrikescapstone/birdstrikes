@@ -53,7 +53,8 @@ packages <- c(
   'nnet',
   'Metrics',
   'grid',
-  'gridExtra'
+  'gridExtra',
+  'corrplot'
   # 'compiler'
 )
 
@@ -95,12 +96,6 @@ class.data <- class.data %>%
   mutate(WEEK = lubridate::week(class.data$DATE),
          YEAR = lubridate::year(class.data$DATE)) %>%
   mutate(RATIO = STRIKECOUNT / FLIGHTCOUNT * 10000) %>% arrange(DATE)
-
-# Create RatiW column by taking the mean of ratio grouped over year and week
-# ratio_week <- class.data %>% group_by(YEAR, WEEK) %>% summarise(RATIOW = mean(RATIO))
-
-# Merge the RatioW column back to the main dataframe
-# class.data <- inner_join(class.data,ratio_week, by=c("YEAR"="YEAR", "WEEK"="WEEK"))
 
 # Create a function for rolling mean over 7 days
 rmean7 <- tibbletime::rollify(mean, window=7)
@@ -155,19 +150,8 @@ class.data$THUNDER <- as.factor(class.data$THUNDER)
 
 ```
 
-```{r Transform data}
 
-# # one-hot-encoding categorical features
-# ohe_feats = c('SEASON')
-# 
-# # Create dummies
-# dummies <- dummyVars(~ SEASON, data = class.data)
-# 
-# df.dummies <- as.data.frame(predict(dummies, newdata = class.data))
-# 
-# # Merge Dummies to data frame
-# class.data <-
-#   cbind(class.data[, -c(which(colnames(class.data) %in% ohe_feats))], df.dummies)
+```{r Transform data}
 
 class.data <-
   subset(
@@ -177,19 +161,18 @@ class.data <-
       YEAR,
       SNOW_ICE,
       STRIKECOUNT,
-      # FLIGHTCOUNT,
+      FLIGHTCOUNT,
       STRIKE,
-      # VISIB,
       SEASON,
       RATIO,
-      # RATIOW,
       DEWP,
       MONTH,
       WDSP,
       DAYOFWEEK,
       AIRFIELD,
       RATIOFW7D,
-      RISKNUM
+      RISKNUM,
+      WEEK
     )
   )
 
@@ -369,7 +352,7 @@ print(boruta.df)
 boruta.df <- cbind(Variables = rownames(boruta.df), boruta.df)
 
 # Filter the data frame based on all the confirmed values and mean varialbe importance > 8
-boruta.df <- boruta.df %>% filter(boruta.df$decision == "Confirmed" & boruta.df$meanImp > 8)
+boruta.df <- boruta.df %>% filter(boruta.df$decision == "Confirmed" & boruta.df$meanImp > 10)
 
 # Create predictor list from the result above
 sel.var.list <- paste(dput(boruta.df$Variables), collapse = " + ")

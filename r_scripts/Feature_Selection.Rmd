@@ -37,8 +37,7 @@ packages <- c(
   'DT',
   'zoo',
   'RColorBrewer',
-  'mlbench',
-  "corrplot"
+  'mlbench'
 )
 
 # Checking for package installations on the system and installing if not found
@@ -146,15 +145,18 @@ corr.plot.fn <- function(corr.data) {
 
 # Correlation Plot with all features
 corr.data <- model.data.day %>% dplyr::select(BIRDCOUNT,
-                                   FLIGHTCOUNT,
+                                   # FLIGHTCOUNT,
                                    TEMP,
-                                   DEWP,
+                                   # DEWP,
                                    SLP,
-                                   VISIB,
-                                   WDSP,
+                                   # VISIB,
+                                   # WDSP,
                                    MXSPD,
                                    PRCP,
-                                   STRIKECOUNT)
+                                   STRIKECOUNT,
+                                   RATIO,
+                                   RATIOFW7D,
+                                   WEEK)
 
 # Print correlation plot
 corr.plot.fn(corr.data)
@@ -164,6 +166,7 @@ corr.plot.fn(corr.data)
 Based on the above plot, Temperature and Dew point are positively and strongly correlated with each other. Max wind speed and wind speed are also postively strongly correlated with each other. Temperature and visibility are also correlated to with a correlation coefficient of 0.38 and slight positive correlation
 
 With the above understanding we may want to remove the highly correlated variables and check if there are any more strongly correlated variables which surface up.
+
 
 ```{r Corr Plot with revised variable list}
 
