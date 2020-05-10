@@ -171,8 +171,7 @@ class.data <-
       DAYOFWEEK,
       AIRFIELD,
       RATIOFW7D,
-      RISKNUM,
-      WEEK
+      RISKNUM
     )
   )
 
@@ -195,131 +194,6 @@ train.data <- class.data[trainRowNumbers.cl, ]
 # Step 3: Create the test dataset
 test.data <- class.data[-trainRowNumbers.cl, ]
 ```
-
-### Learning Curves
-
-We have settled in the 70-30 splits and a 5-fold cross validation based on the learning curves we developed for each of our learners. Below is the illustration of the learning curve for XGBoost model using the down sampling technique. The loss of the model is lower on the training dataset compared to the test data and the training loss decreases to a point of stability. The loss on the training and the test data converge after training around 3000 samples which illustrates that the model developed on XGBoost with down sampling technique is works well. The learning curve provides confidence on eliminating the possibility of the data overfitting or underfitting and giving a generalized performance on the test data. 
-
-```{r Create Learning Curves}
-
-# Copy the complete dataframe into for use in looking at the generalizatin of the data
-learn.data <- class.data
-
-# Convert the RISK target variable to factor
-learn.data <- learn.data  %>% 
-  mutate(RISK = factor(RISK, 
-          levels = make.names(levels(RISK))))
-
-# Convert the categorical columns to numeric for XGBoost
-learn.data <-  learn.data %>% mutate(
-  FOG = as.numeric(FOG),
-  RAIN_DRIZZLE = as.numeric(RAIN_DRIZZLE),
-  HAIL = as.numeric(HAIL),
-  THUNDER = as.numeric(THUNDER)
-) %>% rename(RAINDRIZZLE = RAIN_DRIZZLE)
-
-```
-
-```{r GgPlot Base Theme, message=FALSE, warning=FALSE}
-
-# Use the base theme for ggplot
-base.theme.with.axis <- theme_bw() +
-  theme(
-    text = element_text(family = "Arial"),
-    panel.border = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    axis.line = element_line(color = "black"),
-    axis.ticks.x = element_blank(),
-    axis.ticks.y = element_blank(),
-    axis.text.x = element_text(size = 10, angle = 0),
-    axis.text.y = element_text(size = 10, angle = 0),
-    axis.title.x = element_text(size = 10),
-    axis.title.y = element_text(size = 11)
-  )
-```
-
-```{r Run Learning Curves}
-
-# Declare train control with up sampling for use in learning
-trControl_up <- trainControl(
-  method = "cv",
-  number = 5,
-  savePredictions = "final",
-  index = createFolds(as.factor(learn.data$RISK), 5),
-  classProbs = TRUE,
-  summaryFunction = multiClassSummary,
-  sampling = "up"
-)
-
-# Declare train control with down sampling for use in learning
-trControl_down <- trainControl(
-  method = "cv",
-  number = 5,
-  savePredictions = "final",
-  index = createFolds(as.factor(learn.data$RISK), 5),
-  classProbs = TRUE,
-  summaryFunction = multiClassSummary,
-  sampling = "down"
-)
-
-# Execute Learning for up sample data
-set.seed(333)
-xgb_data_up <- caret::learning_curve_dat(dat = learn.data, 
-                              outcome = "RISK",
-                              test_prop = 1/4, 
-                              method = "xgbTree", 
-                              metric = "logLoss",
-                              trControl = trControl_up)
-
-# Execute Learning for down sample data
-set.seed(333)
-xgb_data_down <- caret::learning_curve_dat(dat = learn.data, 
-                              outcome = "RISK",
-                              test_prop = 3/10, 
-                              method = "xgbTree", 
-                              metric = "logLoss",
-                              trControl = trControl_down)
-
-
-```
-
-```{r Plot Learning Curves}
-
-# Plot learning curves for up sampling
-ggplot(xgb_data_up, aes(x = Training_Size, y = logLoss, color = Data)) +
-  geom_point(
-    color = "steelblue",
-    fill = "lightblue",
-    size = 2,
-    shape = 1
-  ) +
-  labs(
-    title = "Learning Curve for XGBoost with Up Sampling",
-    subtitle = "As temperature increases rental activity increases",
-    x = "Temperature",
-    y = "Rentals"
-  ) +
-  base.theme.with.axis +
-  geom_smooth(method = loess, span = .8) + theme_bw() 
-
-# Plot learning curves for down sampling
-ggplot(xgb_data_down, aes(x = Training_Size, y = logLoss, color = Data)) +
-  geom_point(
-    color = "#006BA4",
-    fill = "lightblue",
-    size = 1,
-    shape = 1
-  ) +
-  labs(title = "Learning Curve for XGBoost with Down Sampling",
-       x = "Training Size",
-       y = "Loss") +
-  base.theme.with.axis +
-  scale_color_manual(values = c("#006BA4", "#C55A11", "#404040")) +
-  geom_smooth(method = loess, span = .8)
-
-```
-
 
 
 ```{r Model Metrics data}
@@ -506,8 +380,8 @@ As the dataset is not balanced proportionately we have tried different sampling 
 
 ```{r Modeling without sampling, echo=FALSE, message=FALSE, warning=FALSE}
 
-# Train Control parameter to be used in the caret list for training. 
-# Has parameters for Cross validation with Kfolds 
+# Train Control parameter to be used in the caret list for training.
+# Has parameters for Cross validation with Kfolds
 # and allowing parallel execution of learners in the caret list
 
 trControl <- trainControl(
@@ -564,7 +438,7 @@ modelList <- caretList(
   verbose = FALSE,
   tuneList = list(
     ## Do not use custom names in list. Will give prediction error with greedy ensemble. Bug in caret.
-    
+
     # eXtreme Gradient Boosting
     xgbTree = caretModelSpec(
       method = "xgbTree",
@@ -572,10 +446,10 @@ modelList <- caretList(
       nthread = 8,
       num_class = 3
     ),
-    
+
     # Elastic, highly correlated with lasso and ridge regressions
     glmnet = caretModelSpec(method = "glmnet", tuneGrid = glmnetGridElastic),
-    
+
     # Random Forest with hyper parameters
     rf = caretModelSpec(
       method = "rf",
@@ -584,7 +458,7 @@ modelList <- caretList(
     ),
     # Gradient Boosting Machine
     gbm = caretModelSpec(method = "gbm")#, tuneGrid = gbm.tune.grid)
-    
+
   )
 )
 
@@ -594,8 +468,8 @@ modelList <- caretList(
 
 ```{r Modeling with upsampling, echo=FALSE, message=FALSE, warning=FALSE}
 
-# Train Control parameter to be used in the caret list for training. 
-# Has parameters for Cross validation with Kfolds 
+# Train Control parameter to be used in the caret list for training.
+# Has parameters for Cross validation with Kfolds
 # and allowing parallel execution of learners in the caret list
 trControl <- trainControl(
   method = "cv",
@@ -661,7 +535,7 @@ modelListUp <- caretList(
       nthread = 8,
       num_class = 3
     ),
-    
+
     # Elastic, highly correlated with lasso and ridge regressions
     glmnet = caretModelSpec(method = "glmnet", tuneGrid = glmnetGridElastic),
 
@@ -701,8 +575,8 @@ trControl <- trainControl(
 xgbTreeGrid <-
   expand.grid(
     nrounds = 250,
-    eta = 1,
-    max_depth = 0.025,
+    max_depth = 1,
+    eta = 0.025,
     gamma = 0,
     colsample_bytree = 0.5316,
     subsample = 1.0,
@@ -768,8 +642,8 @@ modelListDown <- caretList(
 
 ```{r Smote, echo=FALSE, message=FALSE, warning=FALSE}
 
-# Train Control parameter to be used in the caret list for training. 
-# Has parameters for Cross validation with Kfolds 
+# Train Control parameter to be used in the caret list for training.
+# Has parameters for Cross validation with Kfolds
 # and allowing parallel execution of learners in the caret list
 trControl <- trainControl(
   method = "cv",
@@ -845,6 +719,134 @@ modelListSmote<- caretList(
   )
 )
 ```
+
+### Learning Curves
+
+We have settled in the 70-30 splits and a 5-fold cross validation based on the learning curves we developed for each of our learners. Below is the illustration of the learning curve for XGBoost model using the down sampling technique. The loss of the model is lower on the training dataset compared to the test data and the training loss decreases to a point of stability. The loss on the training and the test data converge after training around 3000 samples which illustrates that the model developed on XGBoost with down sampling technique is works well. The learning curve provides confidence on eliminating the possibility of the data overfitting or underfitting and giving a generalized performance on the test data. 
+
+```{r Create Learning Curves}
+
+# Copy the complete dataframe into for use in looking at the generalizatin of the data
+learn.data <- class.data
+
+# Convert the RISK target variable to factor
+learn.data <- learn.data  %>% 
+  mutate(RISK = factor(RISK, 
+          levels = make.names(levels(RISK))))
+
+# Convert the categorical columns to numeric for XGBoost
+learn.data <-  learn.data %>% mutate(
+  FOG = as.numeric(FOG),
+  RAIN_DRIZZLE = as.numeric(RAIN_DRIZZLE),
+  HAIL = as.numeric(HAIL),
+  THUNDER = as.numeric(THUNDER)
+) %>% rename(RAINDRIZZLE = RAIN_DRIZZLE)
+
+```
+
+```{r GgPlot Base Theme, message=FALSE, warning=FALSE}
+
+# Use the base theme for ggplot
+base.theme.with.axis <- theme_bw() +
+  theme(
+    text = element_text(family = "Arial"),
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text.x = element_text(size = 10, angle = 0),
+    axis.text.y = element_text(size = 10, angle = 0),
+    axis.title.x = element_text(size = 10),
+    axis.title.y = element_text(size = 11)
+  )
+```
+
+
+
+```{r Run Learning Curves}
+
+Declare train control with up sampling for use in learning
+trControl_up <- trainControl(
+  method = "cv",
+  number = 5,
+  savePredictions = "final",
+  index = createFolds(as.factor(learn.data$RISK), 5),
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary,
+  sampling = "up"
+)
+
+# Declare train control with down sampling for use in learning
+trControl_down <- trainControl(
+  method = "cv",
+  number = 5,
+  savePredictions = "final",
+  index = createFolds(as.factor(learn.data$RISK), 5),
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary,
+  sampling = "down"
+)
+
+# Execute Learning for up sample data
+set.seed(333)
+xgb_data_up <- caret::learning_curve_dat(dat = learn.data,
+                              outcome = "RISK",
+                              test_prop = 1/4,
+                              method = "xgbTree",
+                              metric = "logLoss",
+                              trControl = trControl_up)
+
+# Execute Learning for down sample data
+set.seed(333)
+xgb_data_down <- caret::learning_curve_dat(dat = learn.data,
+                              outcome = "RISK",
+                              test_prop = 3/10,
+                              method = "xgbTree",
+                              metric = "logLoss",
+                              trControl = trControl_down)
+
+
+```
+
+```{r Plot Learning Curves}
+
+# Plot learning curves for up sampling
+ggplot(xgb_data_up, aes(x = Training_Size, y = logLoss, color = Data)) +
+  geom_point(
+    color = "steelblue",
+    fill = "lightblue",
+    size = 2,
+    shape = 1
+  ) +
+  labs(
+    title = "Learning Curve for XGBoost with Up Sampling",
+    subtitle = "As temperature increases rental activity increases",
+    x = "Temperature",
+    y = "Rentals"
+  ) +
+  base.theme.with.axis +
+  geom_smooth(method = loess, span = .8) + theme_bw()
+
+# Plot learning curves for down sampling
+ggplot(xgb_data_down, aes(x = Training_Size, y = logLoss, color = Data)) +
+  geom_point(
+    color = "#006BA4",
+    fill = "lightblue",
+    size = 1,
+    shape = 1
+  ) +
+  labs(title = "Learning Curve for XGBoost with Down Sampling",
+       x = "Training Size",
+       y = "Loss") +
+  base.theme.with.axis +
+  scale_color_manual(values = c("#006BA4", "#C55A11", "#404040")) +
+  geom_smooth(method = loess, span = .8)
+
+```
+
+
 
 ### Validate eXtreme Gradient Boosting for all sampling types
 
@@ -961,7 +963,7 @@ modelListDown$xgbTree$bestTune
 
 ```{r Save Best model}
 # Save Model to RDS
-saveRDS(modelList$gbm, "model_gbm_KDFW.RDS")
+saveRDS(modelListDown$xgbTree, "../data/model_kden_final.RDS")
 
 ```
 
