@@ -1,0 +1,1192 @@
+---
+title: "Bird Strikes"
+output: 
+  flexdashboard::flex_dashboard:
+    theme: cerulean
+    logo: www/favicon.png
+    favicon: www/favicon.png
+    orientation: rows
+runtime: shiny
+---
+
+
+```{r Setup, echo=FALSE, eval=TRUE, results=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+
+# Creating a vector of packages used within
+required.packages <- c(
+  'DT',
+  'tidyverse',
+  'data.table',
+  'scales',
+  'tidyselect',
+  'lubridate',
+  'VIM',
+  'leaps',
+  'car',
+  'caret',
+  'randomForest',
+  'e1071',
+  'ggplot2',
+  'ggthemes',
+  'RColorBrewer',
+  'dplyr',
+  'flexdashboard'
+)
+
+
+
+# Function to Install and Load R Packages
+install.load.packages <- function(required.packages)
+{
+  required.packages <-
+    required.packages[!(required.packages %in% installed.packages()[, "Package"])]
+  
+  
+  if (length(required.packages))
+  {
+    install.packages(required.packages, repos = 'http://cran.us.r-project.org')
+    
+  }
+  for (package.name in required.packages)
+  {
+    library(package.name,
+            character.only = TRUE,
+            quietly = TRUE)
+    
+  }
+}
+
+# Call the Function
+install.load.packages(required.packages)
+
+# Including the packages for use
+for (package in required.packages) {
+  library(package, character.only = TRUE)
+}
+
+```
+
+
+```{r global, include=FALSE}
+# load data in 'global' chunk so it can be shared by all users of the dashboard
+engine.data <- readRDS("../../data/KDEN_EngineFailure.RDS")
+
+StrikesMaster <- engine.data
+
+# Mutate dataset by casting features to the right datatype
+engine.data <- mutate(
+  engine.data,
+  index_nr = as.integer(index_nr),
+  incident_date = as.Date(incident_date),
+  numengs = as.factor(numengs),
+  time_of_day = as.factor(time_of_day),
+  season = as.factor(season),
+  height = as.integer(height),
+  phase_of_flt = as.factor(phase_of_flt),
+  damage = as.factor(damage),
+  effect = as.factor(effect),
+  sky = as.factor(sky),
+  min_bird_struck = as.factor(min_bird_struck),
+  max_bird_struck = as.factor(max_bird_struck),
+  size = as.factor(size),
+  eng_fail = as.factor(eng_fail)
+) %>% dplyr::select(
+  index_nr,
+  airport_id,
+  incident_date,
+  height,
+  numengs,
+  time_of_day,
+  season,
+  phase_of_flt,
+  damage,
+  effect,
+  sky,
+  min_bird_struck,
+  max_bird_struck,
+  size,
+  struck_combined,
+  damage_combined,
+  eng_fail
+)
+
+# Copy Engine failure data to the Model Data frame
+model.data <- engine.data
+
+# Separate the incident date column to year, month and day
+model.data <-
+  separate(model.data,
+           incident_date,
+           into = as.character(c("year", "month", "day")),
+           sep = "-")
+
+# Remove the observations for departure and arrival from the phase of flight column as they are insignificant and very few
+model.data <- model.data %>% filter(!phase_of_flt %in% c("departure","arrival"))
+
+# Update someclouds to somecloud
+model.data$sky[model.data$sky == "someclouds"] <- "somecloud"
+
+# Fill in engineshutdown to 0/1 values based on the effect column
+model.data$eng_fail <- ifelse(model.data$effect == "engineshutdown", 1, 0)
+
+# Mutate the new columns to factors
+model.data <- mutate(
+  model.data,
+  month = as.factor(month),
+  day = as.factor(day),
+  eng_fail = as.factor(eng_fail)
+)
+
+# Reorder the columns for use in variable selection and importance steps (just for ease of selection using indexes)
+model.data <- model.data %>% dplyr::select(
+  month,
+  day,
+  height,
+  numengs,
+  time_of_day,
+  season,
+  phase_of_flt,
+  damage,
+  effect,
+  sky,
+  min_bird_struck,
+  max_bird_struck,
+  size,
+  struck_combined,
+  damage_combined,
+  eng_fail
+)
+
+# # VERY IMPORTANT STEP - Normalize the height column to remove the variation
+# model.data$height <- scale(model.data$height)
+
+# Create model formula for use in modeling
+model.formula <- eng_fail ~ damage + phase_of_flt + numengs + sky + height + size + season
+
+#  Partition data to test and train datasets 
+set.seed(12345)
+model.data <- as.data.frame(model.data)
+sub <- caret::createDataPartition(model.data$eng_fail, p = 0.8, list = FALSE)
+train.data <- model.data[sub, ]
+test.data <- model.data[-sub, ]
+
+```
+
+Introduction {data-icon="fa-table"}
+=========================================
+
+
+Row
+-------------------------------------
+
+### **Problem Statement and Objective**
+
+Bird Strikes, defined as collisions between a bird and a moving aircraft, pose material threats to airplane passengers and hardware. Specifically, engine failure(s) caused by bird strikes, can be extremely dangerous to modern aircraft due to the common twin-engine design.  Since 1988, bird strikes have killed 280+ people and destroyed 260+ aircraft worldwide, resulting in an estimated $670M+ in direct aircraft repair costs (4,000+ reports indicate an average of over $150K/incident). Currently, pilots in civil aviation lack insight into the likelihood or risk levels of an engine failure due to a bird strike; therefore, they are unable to take proper precautionary measures to protect their passengers and aircraft. This is compounded by:
+
+  * the growing use of turbofan engines 
+  * the increase of air traffic around the world, and 
+  * the lack of modern-day turbofan engine testing against a growing population of large birds. 
+    
+All of these considerations contribute to the major concerns and substantial risks that  an increase in future bird strikes will result in an increase of engine failure(s).  
+
+##### **Our analysis consists of four sections:**
+
+    * Conducting exploratory analysis on our dataset to determine patterns, imputations, causality, and/or correlation between variables 
+    
+    * Determining the variables that are statistically significant to our target variable, the likelihood or probability of engine failure in the event of a bird strike
+    
+    * Estimating the performance of various prediction models based on defined evaluation metrics
+    
+    * Predicting the likelihood or probability of engine failure utilizing the best performing prediction models
+
+Row
+-------------------------------------
+    
+### **Tabular view of data**
+
+
+```{r}
+
+renderDataTable({
+  DT::datatable(
+    engine.data,
+    rownames = TRUE,
+    filter = "top",
+    extensions = c('KeyTable', 'Scroller', 'AutoFill'),
+    options = list(
+      dom = 'Bfrtip',
+      keys = TRUE,
+      deferRender = F,
+  scrollY = '650px',
+  scrollX = T,
+  scroller = TRUE))})
+
+```
+
+
+Data Processing {data-icon="fa-pencil"}
+=========================================
+
+
+Row {data-height=600}
+-------------------------------------
+
+### **Data Processing**
+
+#### The first three steps below were implemented prior to our exploratory data analysis.
+
+**1. Data Preparation** <br> 
+Our analysis utilizes data from the Federal Aviation Association (FAA) Wildlife Strike Database, in which we observe 111,694 records of bird strikes dating back to January 1, 1990 (approximately 30 years of historical strikes). We completed the following data clean-up / preparation steps to assist with our modeling and analysis.
+
+  + Adjust variable names and data to lowercase, remove spaces, dashes, and plural for consistency
+  + Add seasonality based on the incident date
+  + Combine strikes in various airplane locations to indicate overall incident strike occurrence
+  + Combine damage to various airplane locations to indicate overall incident damage occurrence
+  + Create minimum and maximum bird strikes for each incident
+
+
+**2. Missing Data Assumptions** <br> 
+We made simplifying assumptions in regards to our missing data values for all non-target variables.
+
+  + _Size:_ set to unknown
+  + _Sky:_ set to unknown
+  + _Effect:_ set to None
+  + _Damage:_ set to unknown if the _combined damage_ variable is FALSE, and set to damage caused/extent unknown if the _combined damage_ variable is TRUE
+  + _Time of Day:_ set to unknown
+  + _Incident ID:_ removed 
+
+
+**3. Handling Nonignorable Missing Data** <br> 
+Our target variable is _Engine Failure_, denoted in binary values of no engine failure or existing at least 1 engine failure / shut down. Therefore, any missing data for this variable is considered nonignorable, and we impute based on the below defined logic:
+
+  + _Engine Failure:_ set to 1 if the _Effect_ variable is equal to "Engine Shut Down" and 0 for all else
+
+<br>
+
+#### The remaining two steps below were implemented prior to our modeling and prediction tasks.
+
+**4. Feature Selection** <br>
+As part of the feature selection process, we first performed a linear regression model with Engine failures as a numeric to understand the statistical importance of all the variables from the ANOVA results. We then altered the predictors based on the statistical importance to measure the RMSE, MAE and AIC metrics and picked the predictors which resulted in the lowest RMSE metric. Also, we performed the measurements on the R2 metric and Adjusted R2 metrics using the leaps package to understand which variables combination provide the highest R2 value. We used both these techniques to make a first cut on the feature selection process.
+
+**5. Measuring Variable Importance** <br>
+Variable Importance is a key step in the feature selection process to understand how each variable contributes to the predictiveness of engine failures. Using Random Forest technique in a classification model helps in separating out variable importance for each class. The mean Gini Impurity is computed by the random forest classifier to provide the importance for each variable. Based on the variable importance output we have selected all the variables above a threshold of 10 MeanDecreaseGini for modeling. 
+
+
+
+
+Phase of Flight {data-navmenu="Exploratory Data Analysis" data-icon="fa-signal"}
+=====================================================================================
+
+Row
+-------------------------------------
+    
+### **1. Frequency of Phase of Flight with Bird Strikes**
+
+We conduct this preliminary analysis first to determine if the count of bird strikes by phase of flight is consistent with the count of engine failures by phase of flight. During the data pre-processing phase, this knowledge assisted us in determining whether we could impute Engine Failure, our target variable (nonignorable missing data), with the count of bird strikes. Since we observe that the majority of bird strikes occur during approach, we must further investigate the extent of the damage (major/minor in _damage_ variable, TRUE/FALSE in _struck combined_ variable, or TRUE/FALSE in _damage combined_ variable) and whether it led to an engine shut down in the _effect_ variable before confirming an expected correlation. Regardless of these awaited results, we can hypothesize based on our findings from this plot, for aviation experts to provide pilot training programs for more emergency landing procedures. 
+
+### 
+
+```{r Count of Phase of Flight with Bird Strikes, echo=FALSE, eval=TRUE, results=TRUE, include=TRUE, warning=FALSE, message=FALSE}
+
+tcbPalette <- c("#006ba4","#C85200","#595959","#A2C8EC","#FF800E","#898989","#ABABAB","#FFBC79","#5F9ED1","#CFCFCF","#000000")
+
+#Creating a temporary graph for the Graph
+temp_df<-  group_by(StrikesMaster,
+           phase_of_flt = StrikesMaster$phase_of_flt) %>% 
+  dplyr::summarize(Count = n())
+
+#plot 
+ggplot(temp_df,
+       aes(x = reorder(phase_of_flt,-Count),
+           y = Count, fill = phase_of_flt))+ 
+  geom_col(position = position_stack(),colour = "black")+
+  geom_label(fill="white",stat="identity",aes(label = Count))+
+  labs(title = "Frequency of Bird Strikes by Phase of Flight",
+       y = "Frequency of Bird Strikes",
+       x ="Phase of Flight")+
+  theme_clean()+
+  scale_fill_manual(values=tcbPalette)+
+  theme(legend.position="false",
+        axis.text.x = element_text(angle = 25, hjust = 1))
+
+```
+
+Row
+-------------------------------------
+
+### **2. Frequency of Engine Failure by Phase of Flight**
+
+Our secondary analysis provides more insight on the correlation of bird strikes and engine failures. Where the count of bird strikes was more prevalent on approach from the first plot, we observe that the count of engine failures is actually more prevalent on climb in the second plot. Equipped with this knowledge, we determined not to impute Engine Failure with the count of bird strikes. We must, however, consider what could be the driving factor for this difference and will look to discuss later. [In our next plot, we will observe the size of the birds struck in order to determine if there is any contributing correlation for higher engine failure on climb. Also, during the modeling phase, we will observe the effect of altitude on approach vs landing for the probability of engine failure.] For now, we can still derive valuable insights from this plot. Since we evaluate that bird strikes during climb cause greater damage to the aircraft through engine failure, we hypothesize that aviation experts should consider the speed and angle at which airplanes take off / climb and to prioritize the output yielding least probability of engine failure. 
+
+### 
+
+```{r}
+
+#Creating a temporary graph for the Graph
+temp_df1<-group_by(StrikesMaster,
+                   phase_of_flt = StrikesMaster$phase_of_flt,
+                   eng_fail = StrikesMaster$eng_fail) %>% 
+  dplyr::summarize(Count = n()) %>% 
+  dplyr::filter(eng_fail == 1) 
+
+
+
+ggplot(temp_df1,
+       aes(x = reorder(temp_df1$phase_of_flt,-Count),
+           y = temp_df1$Count,
+           fill=phase_of_flt)) +
+  geom_col(colour = "black") +
+  geom_label(fill="white",stat="identity",aes(label = Count),vjust=0.5,hjust=0.5)+
+  labs(title = "Frequency of Engine Failure by Phase of Flight", 
+       y = "Frequency of Engine Failure",x ="Phase of Flight")+
+  theme_clean()+
+  scale_fill_manual(values=tcbPalette)+
+  theme(legend.position="false")
+
+```
+
+
+Weather {data-navmenu="Exploratory Data Analysis" data-icon="fa-signal"}
+=====================================================================================
+
+Row
+-------------------------------------
+    
+### **3. Frequency of Engine Failure by Season**
+    
+This plot yields an interesting discussion as it directly ties into bird migration patterns and possibly weather. The outcome is as expected with lower activity in the winter time (yielding fewer engine failures due to bird strikes) and activity steadily increasing as the year progresses / gets warmer (yielding higher engine failures due to bird strikes). At its simplest form, we consider this to be fairly predictive of increased engine failures due to the change in seasons. We hypothesize that aviation experts should mitigate this clear pattern with increased efforts for bird deterrents (dogs/statues, prevention of surrounding landfills, etc...) during the appropriate times of the year.
+
+### 
+
+```{r}
+
+temp_df3<-group_by(StrikesMaster,
+                   season = StrikesMaster$season,
+                   eng_fail = StrikesMaster$eng_fail) %>% 
+  dplyr::summarize(Count = n()) %>% 
+  dplyr::filter(eng_fail == 1) 
+
+
+ggplot(temp_df3,
+       aes(x = reorder(temp_df3$season,Count),
+           y = temp_df3$Count,
+           fill=season)) +
+  geom_col(colour = "black") +
+  geom_label(fill="white",stat="identity",aes(label = Count),vjust=0.5,hjust=0.5)+
+  labs(title = "Frequency of Engine Failure by Season", 
+       y = "Frequency of Engine Failure", x = "Season")+
+  theme_clean()+
+  scale_fill_manual(values=tcbPalette)+
+  theme(legend.position="false") + coord_flip()
+
+
+```
+
+Row
+-------------------------------------
+
+### **4. Frequency of Engine Failure by Sky Condition**
+
+Given that there is a large subset of engine failures categorized as unknown (20%), we will not confirm the frequency of engine failures in relation to sky condition until we conduct more analysis. For enhanced Phase II analysis, we will supplement this dataset with sky condition information directly from NOAA. If possible, we suggest to request for more conclusive data gathering from the reporting efforts by pilots or airlines as well. Lastly, we hypothesize that pilots should remain alert during all sky conditions as it is a common misconception that birds do not fly during some cloud / overcast skies. As demonstrated in this plot, the variance between each sky condition category is very slight.
+
+### 
+
+```{r}
+
+temp_df3<-group_by(StrikesMaster,
+                   sky = StrikesMaster$sky,
+                   eng_fail = StrikesMaster$eng_fail) %>% 
+  dplyr::summarize(Count = n()) %>% 
+  dplyr::filter(eng_fail == 1) 
+
+
+ggplot(temp_df3,
+       aes(x = reorder(temp_df3$sky,Count),
+           y = temp_df3$Count,
+           fill=sky)) +
+  geom_col(colour = "black") +
+  geom_label(fill="white",stat="identity",aes(label = Count),vjust=0.5,hjust=0.5)+
+  labs(title = "Frequency of Engine Failure by Sky Condition", 
+       y = "Frequency of Engine Failure", x = "Sky Condition")+
+  theme_clean()+
+  scale_fill_manual(values=tcbPalette)+
+  theme(legend.position="false") + coord_flip()
+
+```
+
+
+Engine Failure {data-navmenu="Exploratory Data Analysis" data-icon="fa-signal"} 
+=====================================================================================
+
+Row
+-------------------------------------
+    
+### **5. Frequency of Engine Failure by Bird Size**
+
+This plot provides some context regarding the observed higher engine failure on climb, such that we evaluate the medium to large size birds are causing the most frequency of engine failures. During the modeling phase, we will overlay altitude of climb with this analysis to determine if there is any relationship between medium to large size birds flying at lower or higher levels against probability of engine failure. In observing this plot, we hypothesize that aviation experts should ensure their airplanes are well tested for medium to large size birds as well as undertaking any efforts to deter these size birds / species from the airport area (deterrent dogs / statues, prevention of surrounding landfills, etc...).
+
+    
+### 
+
+```{r}
+
+temp_df2<-group_by(StrikesMaster,
+                   size = StrikesMaster$size,
+                   eng_fail = StrikesMaster$eng_fail) %>% 
+  dplyr::summarize(Count = n()) %>% 
+  dplyr::filter(size != "unknown") %>% 
+  dplyr::filter(eng_fail == 1)
+
+
+ggplot(temp_df2,
+     aes(x = temp_df2$size,
+         y = temp_df2$Count, fill = size
+         )) +
+geom_col(colour = "black") +
+geom_label(fill="white",stat="identity",aes(label = Count),vjust=0.5,hjust=0.5)+
+labs(title = "Frequency of Engine Failure by Bird Size", 
+     y = "Frequency of Engine Failure",x ="Bird Size")+
+theme_clean()+
+scale_fill_manual(values=tcbPalette)+
+theme(legend.position="false")
+
+```
+
+Row
+-------------------------------------
+
+### **6. Distribution of Engine Failure Over Time**
+
+All of our analysis up until this point has been applied to our entire dataset of approximately 30 years. This plot outputs a time series distribution graph over the previous 10 years' of engine failures. Overall, this tells a good story as it demonstrates the frequency of engine failures has decreased over this time period. Possible contributing factors include better radar technology to detect birds / masses in the sky, better airplane technology, increased awareness for the dangers and frequency of engine failures due to bird strikes, less landfills around airports, etc... However, as air traffic continues to increase, along with the growing use of turbofan engines in aircraft, it is crucial that we continue to analyze, predict, and report on observed engine failures to mitigate future occurrences. All of our hypothesis from our exploratory data analysis will be addressed after modeling and prediction for final recommendations.
+
+
+### 
+
+```{r echo=FALSE}
+# Select Occurrence Data and offense count Group by date
+StrikesMaster$month<-lubridate::year(StrikesMaster$incident_date)
+
+temp_df5 <-StrikesMaster %>% 
+  dplyr::select(month,eng_fail) %>% 
+  group_by(month) %>%
+  dplyr::filter(eng_fail == 1) %>% 
+  summarise(Count = sum(eng_fail))
+
+# Plot a time series graph showing the distribution of engine failures over time
+ggplot(temp_df5,aes(x = temp_df5$month, 
+                    y = temp_df5$Count)) +
+  geom_line(color = "steelblue") +
+  geom_hline(aes(
+    yintercept = mean(temp_df5$Count)),
+    color = "red",
+    linetype = "dashed",
+    size = 1) +
+  geom_smooth(method = 'lm') +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  scale_fill_manual(values=tcbPalette)+
+  ggthemes::theme_clean()+
+  labs(title = "Distribution of Engine Failure Over Time", 
+       x = "Occurrence Year", 
+       y = "Frequency of Engine Failure")
+
+```
+
+
+Modeling & Evaluation {data-icon="fa-robot"}
+=========================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+```{r}
+
+
+radioButtons(
+  "modelName",
+  label = h3("Select Model Name:"),
+  c(
+    "Logistic Regression" = "lr",
+    "Naive Bayes" = "nb",
+    "SVM" = "svm",
+    "Random Forest" = "rf",
+    "Combined Plot" = "all"
+  )
+)
+
+
+```
+ 
+Row {data-height=650}
+-------------------------------------
+
+### **ROC Curves**
+
+```{r Logistic Regression}
+
+model_lr <- readRDS("../../data/model_lr.rds")
+
+# Predict using test data
+lr.prediction <- predict(model_lr, test.data)
+
+# Load Predictions and performance
+lr.pred <-
+  ROCR::prediction(predictions = lr.prediction, labels = test.data$eng_fail)
+
+roc.lr <- ROCR::performance(lr.pred, measure = "tpr", x.measure = "fpr")
+
+roc.lr.auc <- ROCR::performance(lr.pred, measure = "auc")
+
+
+```
+
+```{r Naive Bayes}
+# Build Naive Bayes Classifier
+model_nb <- readRDS("../../data/model_nb.rds")
+
+# Predict using test data
+predvals = predict(model_nb, test.data, type = "raw")
+
+# Load Predictions and performance
+nb.pred <-
+  ROCR::prediction(predictions = predvals[, 2], labels = test.data$eng_fail) 
+
+roc.nb <- ROCR::performance(nb.pred, measure = "tpr", x.measure = "fpr")
+
+roc.nb.auc <- ROCR::performance(nb.pred, measure = "auc")
+
+# Plot ROC Curve
+
+
+```
+
+
+```{r SVM Model}
+
+# Build Model using SVM
+model_svm <- readRDS("../../data/model_svm.rds")
+
+# Predict using test data
+svm.pred <- predict(model_svm, test.data, probability = TRUE)
+
+# Load Predictions and performance
+pred.svm <-
+  ROCR::prediction(
+    predictions = attributes(svm.pred)$probabilities[, 2],
+    labels = test.data$eng_fail
+  )
+
+roc.svm <- ROCR::performance(pred.svm, measure = "tpr", x.measure = "fpr")
+
+roc.auc.svm <- ROCR::performance(pred.svm, measure = "auc")
+
+
+```
+
+```{r Random Forest}
+# Build Model using SVM
+model_rf <- readRDS("../../data/model_rf.rds")
+
+# Predict using test data
+rf.pred <- predict(model_rf, type = "prob", newdata = test.data)
+
+# Load Predictions and performance
+rf.roc.pred <- ROCR::prediction(rf.pred[,2], test.data$eng_fail)
+
+roc.rf <- ROCR::performance(rf.roc.pred, measure = "tpr", x.measure = "fpr")
+
+roc.auc.rf <- ROCR::performance(rf.roc.pred, measure = "auc")
+
+```
+
+
+```{r}
+
+renderPlot({
+  if (input$modelName == "lr")
+  {
+    plot.roc <- plot(
+      roc.lr,
+      main = paste(
+        "ROC - Logistic Regression",
+        " | ",
+        "AUC - ",
+        round(as.numeric(roc.lr.auc@y.values), 3)
+      ),
+      col = "#006ba4",
+      lwd = 3
+    )
+    segments(0, 0, 1, 1, lty = 4)
+  }
+  else if (input$modelName == "nb") {
+    plot.roc <- plot_nb <- plot(
+      roc.nb,
+      main = paste("ROC - NaiveBayes", " | ", "AUC - ", round(as.numeric(
+        roc.nb.auc@y.values
+      ), 3)),
+      col = "#c85200",
+      lwd = 3
+    )
+    segments(0, 0, 1, 1, lty = 4)
+    
+  } else if (input$modelName == "svm") {
+    plot.roc <- plot(
+      roc.svm,
+      main = paste("ROC - SVM", " | ", "AUC - ", round(as.numeric(
+        roc.auc.svm@y.values
+      ), 3)),
+      col = "#595959",
+      lwd = 3
+    )
+    segments(0, 0, 1, 1, lty = 4)
+  } else if (input$modelName == "rf") {
+    plot.roc <- plot(
+      roc.rf,
+      main = paste("ROC - RandomForest", " | ", "AUC - ", round(as.numeric(
+        roc.auc.rf@y.values
+      ), 3)),
+      col = "#a2c8ec",
+      lwd = 3,
+      asp = NA
+    )
+    segments(0, 0, 1, 1, lty = 4)
+  } else {
+    plot.roc <- plot(
+      roc.lr,
+      col = "#006ba4",
+      main = paste("ROC - Logistic Regression | Naive Bayes | SVM | Random Forest")
+    )
+    plot(roc.nb, col = "#c85200", add = TRUE)
+    plot(roc.svm, col = "#595959", add = TRUE)
+    plot(roc.rf, col = "#a2c8ec", add = TRUE)
+    # abline(h = c(0.2, 0.4, 0.6, 0.8), lty = 1)
+    # abline(v = c(0, 0.2, 0.4, 0.6, 0.8, 1), lty = 1)
+    legend(
+      "bottomright",
+      "Color Indicator",
+      c(
+        paste("Logistic Regression", " | ", "AUC=", round(as.numeric(
+          roc.lr.auc@y.values
+        ), 3)),
+        paste("NaiveBayes", " | ", "AUC=", round(as.numeric(
+          roc.nb.auc@y.values
+        ), 3)),
+        paste("SVM", " | ", "AUC=", round(as.numeric(
+          roc.auc.svm@y.values
+        ), 3)),
+        paste("RandomForest", " | ", "AUC=", round(as.numeric(
+          roc.auc.rf@y.values
+        ), 3))
+      ),
+      inset = .025,
+      fill = c("#006ba4", "#c85200", "#595959", "#a2c8ec")
+    )
+    segments(0, 0, 1, 1, lty = 4)
+  }
+  plot.roc
+})
+
+
+```
+
+
+### **Evaluation Metrics and Statistical Analysis**
+
+```{r}
+
+create.metrics <- function(test_con_mat_1, test_con_mat_5, test_con_mat_10, test_con_mat_25, test_con_mat_50) {
+  metrics = rbind(
+    c(
+      test_con_mat_1$overall["Accuracy"],
+      test_con_mat_1$byClass["Sensitivity"],
+      test_con_mat_1$byClass["Specificity"]
+    ),
+    
+    c(
+      test_con_mat_5$overall["Accuracy"],
+      test_con_mat_5$byClass["Sensitivity"],
+      test_con_mat_5$byClass["Specificity"]
+    ),
+    
+    c(
+      test_con_mat_10$overall["Accuracy"],
+      test_con_mat_10$byClass["Sensitivity"],
+      test_con_mat_10$byClass["Specificity"]
+    ),
+    
+    c(
+      test_con_mat_25$overall["Accuracy"],
+      test_con_mat_25$byClass["Sensitivity"],
+      test_con_mat_25$byClass["Specificity"]
+    ),
+    
+    c(
+      test_con_mat_50$overall["Accuracy"],
+      test_con_mat_50$byClass["Sensitivity"],
+      test_con_mat_50$byClass["Specificity"]
+    )
+    
+  )
+  metrics <- as.data.frame(metrics)
+  metrics["Cutoffs"] <- c("0.01", "0.05", "0.10", "0.25", "0.50")
+  metrics <-
+    metrics %>% mutate(
+      Cutoffs = as.character(Cutoffs),
+      Accuracy = as.character(Accuracy),
+      Sensitivity = as.character(Sensitivity),
+      Specificity = as.character(Specificity)
+    ) %>% dplyr::select(Cutoffs, Accuracy, Sensitivity, Specificity)
+  return(metrics)
+}
+
+```
+
+
+```{r Get Metrics for Logistic Regression }
+
+get_lr_pred <-  function(mod, data, pos = 1, neg = 0, cut = 0.5) {
+  probs = predict(mod, newdata = data, type = "response")
+  ifelse(probs > cut, pos, neg)
+}
+
+get.lr.metrics <- function() {
+  test_pred_1 = get_lr_pred(
+    model_lr,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.01
+  )
+  test_pred_5 = get_lr_pred(
+    model_lr,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.05
+  )
+  test_pred_10 = get_lr_pred(
+    model_lr,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.1
+  )
+  test_pred_25 = get_lr_pred(
+    model_lr,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.25
+  )
+  test_pred_50 = get_lr_pred(
+    model_lr,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.5
+  )
+  
+  test_tab_1 = table(predicted = test_pred_1, actual = test.data$eng_fail)
+  test_tab_5 = table(predicted = test_pred_5, actual = test.data$eng_fail)
+  test_tab_10 = table(predicted = test_pred_10, actual = test.data$eng_fail)
+  test_tab_25 = table(predicted = test_pred_25, actual = test.data$eng_fail)
+  test_tab_50 = table(predicted = test_pred_50, actual = test.data$eng_fail)
+  
+  test_con_mat_1 = caret::confusionMatrix(test_tab_1, positive = "1")
+  test_con_mat_5 = caret::confusionMatrix(test_tab_5, positive = "1")
+  test_con_mat_10 = caret::confusionMatrix(test_tab_10, positive = "1")
+  test_con_mat_25 = caret::confusionMatrix(test_tab_25, positive = "1")
+  test_con_mat_50 = caret::confusionMatrix(test_tab_50, positive = "1")
+  
+  mets.lr <- create.metrics(test_con_mat_1, test_con_mat_5, test_con_mat_10, test_con_mat_25, test_con_mat_50)
+  return(mets.lr)
+}
+
+```
+
+```{r Get Metrics for Naive Bayes}
+
+get_nb_pred <-  function(mod, data, pos = 1, neg = 0, cut = 0.5) {
+  probs = predict(mod, newdata = data, type = "raw")
+  ifelse(probs > cut, pos, neg)
+}
+
+get.nb.metrics <- function() {
+  test_pred_1 = get_nb_pred(
+    model_nb,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.01
+  )
+  test_pred_5 = get_nb_pred(
+    model_nb,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.05
+  )
+  test_pred_10 = get_nb_pred(
+    model_nb,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.1
+  )
+  test_pred_25 = get_nb_pred(
+    model_nb,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.25
+  )
+  test_pred_50 = get_nb_pred(
+    model_nb,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.5
+  )
+  
+  test_tab_1 = table(predicted = test_pred_1[, 2], actual = test.data$eng_fail)
+  test_tab_5 = table(predicted = test_pred_5[, 2], actual = test.data$eng_fail)
+  test_tab_10 = table(predicted = test_pred_10[, 2], actual = test.data$eng_fail)
+  test_tab_25 = table(predicted = test_pred_25[, 2], actual = test.data$eng_fail)
+  test_tab_50 = table(predicted = test_pred_50[, 2], actual = test.data$eng_fail)
+  
+  test_con_mat_1 = caret::confusionMatrix(test_tab_1, positive = "1")
+  test_con_mat_5 = caret::confusionMatrix(test_tab_5, positive = "1")
+  test_con_mat_10 = caret::confusionMatrix(test_tab_10, positive = "1")
+  test_con_mat_25 = caret::confusionMatrix(test_tab_25, positive = "1")
+  test_con_mat_50 = caret::confusionMatrix(test_tab_50, positive = "1")
+  
+  mets.nb <- create.metrics(test_con_mat_1, test_con_mat_5, test_con_mat_10, test_con_mat_25, test_con_mat_50)
+  return (mets.nb)
+}
+
+```
+
+```{r Get Metrics for SVM}
+get_svm_pred <-  function(mod, data, pos = 1, neg = 0, cut = 0.5) {
+  probs = predict(mod, newdata = data, probability = TRUE)
+  ifelse(attributes(probs)$probabilities[,2] > cut, pos, neg)
+}
+
+get.svm.metrics <- function() {
+  test_pred_1 = get_svm_pred(
+    model_svm,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.01
+  )
+  test_pred_5 = get_svm_pred(
+    model_svm,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.05
+  )
+  test_pred_10 = get_svm_pred(
+    model_svm,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.1
+  )
+  test_pred_25 = get_svm_pred(
+    model_svm,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.25
+  )
+  test_pred_50 = get_svm_pred(
+    model_svm,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.5
+  )
+  
+  test_con_mat_1 = caret::confusionMatrix(test_pred_1, test.data$eng_fail)
+  test_con_mat_5 = caret::confusionMatrix(test_pred_5, test.data$eng_fail)
+  test_con_mat_10 = caret::confusionMatrix(test_pred_10, test.data$eng_fail)
+  test_con_mat_25 = caret::confusionMatrix(test_pred_25, test.data$eng_fail)
+  test_con_mat_50 = caret::confusionMatrix(test_pred_50, test.data$eng_fail)
+  
+  mets.svm <- create.metrics(test_con_mat_1, test_con_mat_5, test_con_mat_10, test_con_mat_25, test_con_mat_50)
+  return(mets.svm)
+}
+
+
+```
+
+```{r Get Metrics for Random Forest}
+
+get_rf_pred <-  function(mod, data, pos = 1, neg = 0, cut = 0.5) {
+  probs = predict(mod, type = "prob", newdata = data)
+  ifelse(probs > cut, pos, neg)
+}
+
+get.rf.metrics <- function() {
+  test_pred_1 = get_rf_pred(
+    model_rf,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.01
+  )
+  test_pred_5 = get_rf_pred(
+    model_rf,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.05
+  )
+  test_pred_10 = get_rf_pred(
+    model_rf,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.1
+  )
+  test_pred_25 = get_rf_pred(
+    model_rf,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.25
+  )
+  test_pred_50 = get_rf_pred(
+    model_rf,
+    data = test.data,
+    pos = "1",
+    neg = "0",
+    cut = 0.5
+  )
+  
+  test_tab_1 = table(predicted = test_pred_1[, 2], actual = test.data$eng_fail)
+  test_tab_5 = table(predicted = test_pred_5[, 2], actual = test.data$eng_fail)
+  test_tab_10 = table(predicted = test_pred_10[, 2], actual = test.data$eng_fail)
+  test_tab_25 = table(predicted = test_pred_25[, 2], actual = test.data$eng_fail)
+  test_tab_50 = table(predicted = test_pred_50[, 2], actual = test.data$eng_fail)
+  
+  test_con_mat_1 = caret::confusionMatrix(test_tab_1, positive = "1")
+  test_con_mat_5 = caret::confusionMatrix(test_tab_5, positive = "1")
+  test_con_mat_10 = caret::confusionMatrix(test_tab_10, positive = "1")
+  test_con_mat_25 = caret::confusionMatrix(test_tab_25, positive = "1")
+  test_con_mat_50 = caret::confusionMatrix(test_tab_50, positive = "1")
+  
+  mets.rf <- create.metrics(test_con_mat_1, test_con_mat_5, test_con_mat_10, test_con_mat_25, test_con_mat_50)
+  return(mets.rf)
+}
+
+```
+
+#### Below are the metrics displayed in a tabular format based on the selection of radio buttons in the side panel:
+
+```{r}
+
+renderTable({
+  if (input$modelName == "lr")
+  {
+    mets = get.lr.metrics()
+  } else if (input$modelName == "nb") {
+    mets = get.nb.metrics()
+  } else if (input$modelName == "svm") {
+    mets = get.lr.metrics()
+  } else if (input$modelName == "rf") {
+    mets = get.rf.metrics()
+  } else {
+    mets = get.lr.metrics()
+  }
+  return(mets)
+})
+
+```
+
+NOTE: Based on the ROC Curve and other Classification metrics, logistic regression has been chosen as the best predictive model. When the combined option is selected in the side panel, Logistic regression metrics are displayed, and we can graphically and statistically confirm it is the best predictive model. 
+
+The below table displays the output probabilities in a tabular format for a test data set which has a mix of observations with/without an engine failure caused by a bird strike.
+
+Row {data-height=350}
+-------------------------------------
+
+### **Output Probabilities**
+
+```{r}
+
+test.pred <- predict(model_lr, test.data, type="response")
+
+predicted <- plogis(predict(model_lr, test.data)) 
+
+# Output dataframe with probabilities
+output.data <- cbind(test.data, predicted)
+
+# output.data$height * attr(output.data$height, 'scaled:scale') + attr(output.data$height, 'scaled:center')
+
+output.data <-
+  output.data %>% dplyr::select(
+    numengs,
+    height,
+    phase_of_flt,
+    sky,
+    size,
+    season,
+    time_of_day,
+    effect,
+    damage,
+    eng_fail,
+    predicted
+  )
+```
+
+
+
+```{r}
+
+renderDataTable({
+  DT::datatable(
+    output.data,
+    rownames = TRUE,
+    filter = "top",
+    extensions = c('KeyTable', 'Scroller', 'AutoFill'),
+    options = list(
+      dom = 'Bfrtip',
+      keys = TRUE,
+      deferRender = F,
+  scrollY = '650px',
+  scrollX = T,
+  scroller = TRUE))})
+
+```
+
+
+Prediction and Conclusion {data-icon="fa-chart-line"}
+=========================================
+
+Row
+-------------------------------------
+
+### **Phase of Flight**
+    
+```{r}
+analyze.phs <-
+  output.data %>% dplyr::select(height, phase_of_flt, eng_fail, predicted) %>% dplyr::filter(phase_of_flt %in% c("approach", "descent", "climb") & (height > 0 & height < 10000) & predicted < 0.5)
+
+renderPlot({
+  ggplot(analyze.phs, aes(height, predicted, color = phase_of_flt)) +
+    stat_smooth(
+      method = "glm",
+      family = binomial,
+      formula = y ~ x,
+      alpha = 0.1,
+      size = 2,
+      aes(fill = phase_of_flt)
+    ) +
+    # geom_point(position=position_jitter(height=0.03, width=.01)) +
+    xlab("Altitude") + ylab("Probability of Engine Failure")
+})
+
+
+```
+
+### **Bird Size**
+
+```{r}
+
+analyze.size <-
+  output.data %>% dplyr::select(height, size, eng_fail, predicted) %>% dplyr::filter(size %in% c("large", "medium", "small") & (height > 0 & height < 10000) & predicted < 0.5)
+
+renderPlot({
+  ggplot(analyze.size, aes(height, predicted, color = size)) +
+    stat_smooth(
+      method = "glm",
+      family = binomial,
+      formula = y ~ x,
+      alpha = 0.2,
+      size = 2,
+      aes(fill = size)
+    ) +
+    # geom_point(position=position_jitter(height=0.03, width=.01)) +
+    xlab("Altitude") + ylab("Probability of Engine Failure")
+})
+
+```
+
+### **Sky Condition**
+
+```{r}
+
+analyze.sky <-
+  output.data %>% dplyr::select(height, sky, eng_fail, predicted) %>% dplyr::filter(sky %in% c("nocloud", "overcast", "somecloud") & (height > 0 & height < 10000) & predicted < 0.5)
+
+renderPlot({
+  ggplot(analyze.sky, aes(height, predicted, color = sky)) +
+    stat_smooth(
+      method = "glm",
+      family = binomial,
+      formula = y ~ x,
+      alpha = 0.2,
+      size = 2,
+      aes(fill = sky)
+    ) +
+    # geom_point(position=position_jitter(height=0.03, width=.01)) +
+    xlab("Altitude") + ylab("Probability of Engine Failure")
+})
+
+```
+
+Row {data-height=350}
+-------------------------------------
+
+### **Conclusion**
+
+Based on our modeling and statistical analysis thereof, we output a prediction of the probability of engine failure in various scenarios with a Logistic Regression Model.
+
+**1. Phase of Flight**
+Our prediction output shows the probability of engine failure for each phase of flight based on altitude levels. The comparison between phase of flight scenarios is consistent with our exploratory data analysis, such that we determined there is a greater number of engine failures upon the climb phase of flight than on approach. However, with prediction, we observe that the probability of engine failure converges at higher altitude levels regardless of the phase of flight. Likely this could be due to the lower number of birds flying at the higher altitude levels. Overall, we conclude that the probability of engine failure is most impacted by phase of flight at the lower altitude levels. Therefore, we recommend that: 
+
+  * pilots should clear lower altitudes as efficiently as possible during the climb phase. This can be achieved by adjusting speed and flap settings to provide higher rates of climb
+  * flight crews should delay takeoff and landing when there are reported cases of nearby flocks of birds 
+  * aviation experts should provide pilot training programs for more emergency landing procedures.
+
+**2. Bird Size**
+Our prediction output shows the probability of engine failure for the various bird sizes based on altitude levels. Across the board, large size birds yield 2 times greater probability for engine failure in the case of a bird strike than medium and small birds. In regards to the altitude comparison, all sizes of birds yield lower probabilities of engine failure as altitude increases. This is expected based on our observations from the phase of flight analysis and is consistent with our hypothesis that there is an overall lower number of birds flying at higher altitude levels. Due to the large disparity between bird size effect on the probability of engine failure, we recommend that:
+
+  * aviation experts should ensure their airplanes are well tested for medium to large size birds, especially as the use of turbofan engines are increasing over time
+  * airport crews should consider deterrent efforts specifically targeting large size bird species in their areas and/or reduce and eliminate attractants (i.e. landfills)
+  * aviation experts should consider investing in radar technology or other methods to detect large masses surrounding airports
+
+
+**3. Sky Condition**
+Our prediction output shows the probability of engine failure for the various sky conditions based on altitude levels. Initially during exploratory analysis, no cloud conditions were associated with the largest number of engine failures, though margins were slight between all conditions, and we determined results to be inconclusive due to the large number of unknown sky conditions. Post modeling, our prediction output shows that no cloud conditions yield 2x less probability of engine failure than some cloud and overcast conditions, and this is consistent over all altitude levels. However, as expected, the probability of engine failure decreases for all bird sizes as altitude increases. We continue to check our hypothesis that there is an overall lower number of birds flying at higher altitude levels. To mitigate engine failure at the lower altitude levels in poor sky conditions (overcast or some cloud), we recommend that:
+
+  * pilots should remain alert at lower altitudes and in reduced visibility conditions
+  * flight crews / pilot training programs should dispel any misconceptions that birds only fly in clear skies
+  * pilot training programs should consider adding emergency landing / taking off simulations in reduced visibility situations 
+
+
+Team {data-icon="fa-users"}
+=========================================
+
+
+Inputs {.sidebar}
+-------------------------------------
+
+### **About Us**
+We are _What the Flock!_ Our team is unified by the common desire to make an IMPACT. We gravitated towards one another based on our interests and passion for seeking and solving intellectual challenges. We bring together a diverse set of skills and backgrounds that enable us to collaboratively and creatively solve problems and deliver real value-add. We firmly stand behind the notion that our team is greater than the sum of its parts.
+
+
+Column 
+-------------------------------------
+   
+### **Harmonizing a Great Team**
+
+![Left -> Right: Ricky, Mariana, Tanu, Krishna, Christian](www/About_Us_Picture.jpg)
+
+    
+### **Get to Know Us**
+
+![](www/About_Us_Table.jpg)

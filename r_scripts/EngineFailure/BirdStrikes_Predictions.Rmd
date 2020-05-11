@@ -1,0 +1,577 @@
+---
+title: "Bird Strikes"
+author: "Ricky Cornejo, Christian Endter, Mariana Fanous, Tanu Kajla, Krishna Prasad"
+date: "`r format(Sys.time(), '%d-%B, %Y')`"
+output:
+  html_document:
+    code_folding: hide
+    highlight: pygment
+    theme: united
+---
+
+```{r Setup, echo=FALSE, eval=TRUE, results=FALSE, include=FALSE, warning=FALSE, message=FALSE}
+
+# Creating a vector of packages used within
+packages <- c('tidyverse',
+              'data.table',
+              'scales',
+              'readxl',
+              'magrittr',
+              'tidyselect',
+              'openxlsx',
+              'lubridate',
+              'zoo',
+              'VIM',
+              'cluster',
+              'Rtsne',
+              'MASS',
+              'leaps',
+              'car',
+              'caret',
+              'DMwR2',
+              'performanceEstimation',
+              'caTools',
+              'DMwR',
+              'randomForest',
+              'PerformanceAnalytics',
+              'pROC',
+              'e1071'
+              )
+
+# Checking for package installations on the system and installing if not found
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+
+# Including the packages for use
+for(package in packages){
+  library(package, character.only = TRUE)
+}
+
+```
+
+
+```{r Read CSV for Engine failure data}
+# Import Strikes Master Data Set
+eng.data <- readRDS("../../data/KDEN_EngineFailure.RDS")
+
+# Mutate dataset by casting features to the right datatype
+eng.data <- mutate(
+  eng.data,
+  index_nr = as.integer(index_nr),
+  incident_date = as.Date(incident_date),
+  numengs = as.factor(numengs),
+  time_of_day = as.factor(time_of_day),
+  season = as.factor(season),
+  height = as.integer(height),
+  phase_of_flt = as.factor(phase_of_flt),
+  damage = as.factor(damage),
+  effect = as.factor(effect),
+  sky = as.factor(sky),
+  min_bird_struck = as.factor(min_bird_struck),
+  max_bird_struck = as.factor(max_bird_struck),
+  size = as.factor(size),
+  eng_fail = as.factor(eng_fail)
+) %>% dplyr::select(
+  index_nr,
+  airport_id,
+  incident_date,
+  height,
+  numengs,
+  time_of_day,
+  season,
+  phase_of_flt,
+  damage,
+  effect,
+  sky,
+  min_bird_struck,
+  max_bird_struck,
+  size,
+  struck_combined,
+  damage_combined,
+  eng_fail
+)
+
+str(eng.data)
+
+head(eng.data)
+
+clust.data <- eng.data
+```
+
+
+******************************************************** CLUSTER ANALYSIS ****************************************************************
+
+* The idea here is to see if there are any patterns and insights which can be obtained based on the clustering technique assuming I there are no or few business insights for this dataset. This technique also helps in visualizing the lower dimension space. As the dataset has mixed types (numerics, nominals and ordinals), KNN technique may not be the right technique to use. 
+
+* Distance is a numerical measurement of how far apart individuals are, i.e. a metrics used to measure proximity or similarity across individuals. Many distance metrics exist, and one is actually quite useful to crack our case, the Gower distance (1971).
+Gower distance is computed as the average of partial dissimilarities across individuals. 
+* For a numerical feature f, partial dissimilarity is the ratio between 1) absolute difference of observations x_i and x_j and 2) maximum range observed from all individuals: d_ij^f = |x_i — x_j| / |(max_N(x) — min_N(x))| , N being the number of individuals in the dataset.
+* Partial dissimilarity computation for numerical features (R_f = maximal range observed)
+* For a qualitative feature f partial dissimilarity equals 1 only if observations y_i and y_j have different value. Zero otherwise.
+
+
+Note: Gower distance is available in R using daisy()function from the cluster package. Features are first automatically standardized (i.e. rescaled to fall in a [0 1] range).
+
+```{r Calculate Gower Distance}
+# Considered only 10000 samples for clustering to avoid R session crash
+for.clust <- sample_n(clust.data, size = 10000)
+
+# Calculate Gower distance 
+gower_dist <- daisy(for.clust[, 4:16],
+                    metric = "gower",
+                    type = list(logratio = 4))
+
+summary(gower_dist)
+
+# Create a numeric Matrix for use in cluster analysis
+gower_mat <- as.matrix(gower_dist)
+
+# See the similar records in the cluster
+sim <- for.clust[
+  which(gower_mat == min(gower_mat[gower_mat != min(gower_mat)]),
+        arr.ind = TRUE)[1, ], ]
+
+# See the dissimilar records in the cluster
+unsim <- for.clust[
+  which(gower_mat == max(gower_mat[gower_mat != max(gower_mat)]),
+        arr.ind = TRUE)[1, ], ]
+```
+
+ASSESS CONSISTENCY WITHIN CLUSTERS OF DATA:
+
+Unless you have a good a priori rationale to force a specific number of clusters k, you might be interested in asking the computer for a recommendation based on statistics. Several approaches exist to qualify the relevancy of chosen number of clusters. 
+
+The silhouette coefficient contrasts the average distance to elements in the same cluster with the average distance to elements in other clusters. Objects with a high silhouette value are considered well clustered, objects with a low value may be outliers. This index works well with k-medoids clustering, and is also used to determine the optimal number of clusters.
+
+
+```{r Use Silhoutte coefficients to determine K value }
+sil_width <- c(NA)
+
+# Exclude the Index and airport_id columns to fit data using PAM 
+# and determine the silhoutte coefficients 
+for (i in 2:10) {
+  pam_fit <- pam(gower_dist,
+                 diss = TRUE,
+                 k = i)
+  
+  sil_width[i] <- pam_fit$silinfo$avg.width
+}
+
+```
+
+
+```{r Plot Silhoutte width to show the best value for K}
+# Plot sihouette width (higher is better)
+p <- plot(1:10, sil_width,
+     xlab = "Number of clusters",
+     ylab = "Silhouette Width")
+lines(1:10, sil_width)
+
+p
+
+```
+
+
+CLUSTERING ALGORITHM: PARTITIONING AROUND MEDOIDS (PAM): 
+
+The Gower distance fits well with the k-medoids algorithm. k-medoid is a classical partitioning technique of clustering that clusters the data set of n objects into k clusters known a priori.
+
+```{r Partition Around Medoids}
+
+# Use the highest value in the from Silhoutte technique for use as K value in the RTNSE technique
+pam_fit <- pam(gower_dist, diss = TRUE, k = 4)
+
+pam_results <- for.clust  %>%
+  mutate(cluster = pam_fit$clustering) %>%
+  group_by(cluster) %>%
+  do(the_summary = summary(.))
+
+pam_results$the_summary
+```
+
+
+
+Visualization in a lower dimensional space, with t-SNE, using Rtsne() function in R. t-Distributed Stochastic Neighbor Embedding (t-SNE) is a technique for dimensionality reduction that is particularly well suited for the visualization of high-dimensional datasets.
+
+```{r Execute RTNSE }
+for.clust[pam_fit$medoids, ]
+
+# Execute the RTNSE technique
+tsne_obj <- Rtsne(gower_dist, is_distance = TRUE)
+
+tsne_data <- tsne_obj$Y %>%
+  data.frame() %>%
+  setNames(c("X", "Y")) %>%
+  mutate(cluster = factor(pam_fit$clustering),
+         index_nr = for.clust$index_nr)
+# Plot cluster
+ggplot(aes(x = X, y = Y), data = tsne_data) +
+  geom_point(aes(color = cluster))
+```
+
+
+Below code fetches all the observations in the green cluster for humans to be able to visualize any patterns in the data. 
+
+```{r Validate and Analyse}
+
+# Create tabular data for green cluster
+green.clust <- tsne_data %>%
+  filter(X < 0 & X > -35,Y < -15 ) %>%
+  left_join(for.clust, by = "index_nr") %>%
+  collect %>%
+  .[["index_nr"]]
+
+green.clust <- as.data.frame(green.clust)
+
+green <- eng.data %>% filter(eng.data$index_nr %in% green.clust$green.clust)
+```
+
+
+**************************************************** END OF CLUSTER ANALYSIS **********************************************************
+
+```{r Create/Modify Model Data}
+# Copy Engine failure data to the Model Data frame
+model.data <- eng.data
+
+# Separate the incident date column to year, month and day
+model.data <-
+  separate(model.data,
+           incident_date,
+           into = as.character(c("year", "month", "day")),
+           sep = "-")
+
+# Remove the observations for departure and arrival from the phase of flight column as they are insignificant and very few
+model.data <- model.data %>% filter(!phase_of_flt %in% c("departure","arrival"))
+
+# Update someclouds to somecloud
+model.data$sky[model.data$sky == "someclouds"] <- "somecloud"
+
+# Fill in engineshutdown to 0/1 values based on the effect column
+model.data$eng_fail <- ifelse(model.data$effect == "engineshutdown", 1, 0)
+
+# Mutate the new columns to factors
+model.data <- mutate(
+  model.data,
+  month = as.factor(month),
+  day = as.factor(day),
+  eng_fail = as.factor(eng_fail)
+)
+
+# Reorder the columns for use in variable selection and importance steps (just for ease of selection using indexes)
+model.data <- model.data %>% dplyr::select(
+  month,
+  day,
+  height,
+  numengs,
+  time_of_day,
+  season,
+  phase_of_flt,
+  damage,
+  effect,
+  sky,
+  min_bird_struck,
+  max_bird_struck,
+  size,
+  struck_combined,
+  damage_combined,
+  eng_fail
+)
+
+# # VERY IMPORTANT STEP - Normalize the height column to remove the variation
+# model.data$height <- scale(model.data$height)
+
+str(model.data)
+
+
+```
+
+
+
+```{r Run Multivariate Regression for variable selection}
+# Target variable needs to be a numeric for running a regression
+# The below list has been modified after going through these stages and variable importance. 
+# Originally provided all the variables and finally left with the below list
+fit <- lm(as.numeric(eng_fail) ~ month + day + numengs + time_of_day + season + phase_of_flt + damage + sky + min_bird_struck + max_bird_struck + size + struck_combined + damage_combined + height, data = model.data)
+summary(fit)
+step <- stepAIC(fit)
+step$anova # display results
+```
+
+
+
+
+```{r}
+
+# All Subsets Regression
+
+attach(model.data)
+leaps <-
+  regsubsets(as.numeric(eng_fail) ~ damage + phase_of_flt + numengs + sky + height + size,
+             data = model.data)
+# view results
+summary(leaps)
+# plot a table of models showing variables in each model.
+# models are ordered by the selection statistic.
+plot(leaps,scale="r2")
+
+```
+
+```{r}
+
+# Use Random Forest variable importance technique for variable selection
+# The below list has been tailored after multiple iterations
+fit = randomForest(eng_fail ~ damage + phase_of_flt + numengs + sky + height + size, data = model.data)
+importance(fit)
+
+varImp(fit)
+varImpPlot(fit,type=2)
+importanceOrder=order(-fit$importance)
+
+names=rownames(fit$importance)[importanceOrder][1:14]
+names
+
+```
+
+****************************************** END OF CHECKING VARIABLE IMPORTANCE ************************************************
+
+```{r Model Formula}
+# Create model formula for use in modeling
+model.formula <- eng_fail ~ damage + phase_of_flt + numengs + sky + height + size + season
+
+```
+
+```{r Partition data}
+#  Partition data to test and train datasets 
+set.seed(12345)
+sub <- createDataPartition(model.data$eng_fail, p = 0.8, list = FALSE)
+train.data <- model.data[sub, ]
+test.data <- model.data[-sub, ]
+  
+write_csv(test.data,
+  paste("../../data/", "testdata_engfail.RDS", sep = "")
+)
+```
+
+
+```{r Logistic Regression}
+
+# Run logistic regression
+lr.model <- glm(model.formula, data=train.data, family = "binomial")
+
+saveRDS(lr.model, paste("../../data/","model_lr",".rds",sep = ""))
+# Predict using test data
+lr.prediction <- predict(lr.model, test.data)
+
+# Load Predictions and performance
+lr.pred <-
+  ROCR::prediction(predictions = lr.prediction, labels = test.data$eng_fail) 
+
+roc.lr <- ROCR::performance(lr.pred, measure = "tpr", x.measure = "fpr")
+
+roc.lr.auc <- ROCR::performance(lr.pred, measure = "auc")
+
+# Plot ROC Curve
+plot(roc.lr,
+     main = paste("ROC - Logistic Regression"," | ","AUC - ", roc.lr.auc@y.values),
+     col = "blue",
+     lwd = 3)
+segments(0,0, 1, 1, lty = 4)
+dev.off()
+
+summary(lr.model)
+
+```
+
+
+
+```{r Naive Bayes Classifier}
+# Build Naive Bayes Classifier
+NBclassfier = e1071::naiveBayes(model.formula, data =
+                           train.data)
+
+saveRDS(NBclassfier, paste("../../data/","model_nb",".rds",sep = ""))
+
+# Predict using test data
+predvals = predict(NBclassfier, test.data, type = "raw")
+
+# Load Predictions and performance
+nb.pred <-
+  ROCR::prediction(predictions = predvals[, 2], labels = test.data$eng_fail) 
+
+roc.nb <- ROCR::performance(nb.pred, measure = "tpr", x.measure = "fpr")
+
+roc.nb.auc <- ROCR::performance(nb.pred, measure = "auc")
+
+# Plot ROC Curve
+plot(roc.nb,
+     main = paste("ROC - NaiveBayes"," | ","AUC - ", roc.nb.auc@y.values),
+     col = "blue",
+     lwd = 3)
+segments(0,0, 1, 1, lty = 4)
+
+
+plot(roc.nb,
+     main = paste("ROC - NaiveBayes"," | ","AUC - ", roc.nb.auc@y.values),
+     col = "blue",
+     lwd = 3)
+segments(0,0, 1, 1, lty = 4)
+dev.off()
+
+```
+
+```{r SVM Model}
+# Build Model using SVM
+
+svm_model <-
+  svm(
+    model.formula,
+    data = train.data,
+    kernel = "radial",
+    na.action = na.omit,
+    method = "C-classification",
+    probability = TRUE
+  )
+
+saveRDS(svm_model, paste("../../data/","model_svm",".rds",sep = ""))
+
+# Predict using test data
+svm_prediction <- predict(svm_model, test.data, probability = TRUE)
+svm_prediction
+
+# Load Predictions and performance
+pred.svm <-
+  ROCR::prediction(
+    predictions = attributes(svm_prediction)$probabilities[, 2],
+    labels = test.data$eng_fail
+  )
+
+roc.svm <- ROCR::performance(pred.svm, measure = "tpr", x.measure = "fpr")
+
+roc.auc.svm <- ROCR::performance(pred.svm, measure = "auc")
+
+# Plot ROC Curve
+plot(roc.svm,
+     main = paste("ROC - SVM"," | ","AUC - ", roc.auc.svm@y.values),
+     col = "orange",
+     lwd = 3)
+segments(0,0, 1, 1, lty = 4)
+
+jpeg("rocplot-svm.jpg", width = 600, height = 400)
+plot(roc.svm,
+     main = paste("ROC - SVM"," | ","AUC - ", roc.auc.svm@y.values),
+     col = "orange",
+     lwd = 3)
+segments(0,0, 1, 1, lty = 4)
+dev.off()
+
+```
+
+```{r Random Forest}
+
+# Build Model using Random Forest
+
+rf.model <-
+  randomForest(
+    model.formula,
+    data = train.data,
+    ntree = 500
+  )
+
+saveRDS(rf.model, paste("../../data/","model_rf",".rds",sep = ""))
+  
+# Predict using test data
+rf.pred <- predict(rf.model, type = "prob", newdata = test.data)
+
+# Load Predictions and performance
+rf.roc.pred <- ROCR::prediction(rf.pred[,2], test.data$eng_fail)
+
+roc.rf <- ROCR::performance(rf.roc.pred, measure = "tpr", x.measure = "fpr")
+
+roc.auc.rf <- ROCR::performance(rf.roc.pred, measure = "auc")
+
+# Plot ROC Curve
+plot(
+  roc.rf,
+  main = paste("ROC - RandomForest", " | ", "AUC - ", roc.auc.rf@y.values),
+  col = "maroon",
+  lwd = 3,
+  asp = NA
+)
+segments(0, 0, 1, 1, lty = 4)
+
+jpeg("rocplot-rf.jpg", width = 600, height = 400)
+plot(
+  roc.rf,
+  main = paste("ROC - RandomForest", " | ", "AUC - ", roc.auc.rf@y.values),
+  col = "maroon",
+  lwd = 3,
+  asp = NA
+)
+segments(0, 0, 1, 1, lty = 4)
+dev.off()
+
+```
+
+```{r Combine Plots}
+jpeg("rocplot-all.jpg", width = 600, height = 400)
+# Combine all the plots and AUCs in graph to compare
+plot(
+  roc.lr,
+  col = "red",
+  main = paste("ROC - Logistic Regression | Naive Bayes | SVM | Random Forest")
+)
+plot(roc.nb, col = "blue", add = TRUE)
+plot(roc.svm, col = "orange", add = TRUE)
+plot(roc.rf, col = "maroon", add = TRUE)
+# abline(h = c(0.2, 0.4, 0.6, 0.8), lty = 1)
+# abline(v = c(0, 0.2, 0.4, 0.6, 0.8, 1), lty = 1)
+legend(
+  "bottomright",
+  "Color Indicator",
+  c(paste("Logistic Regression"," | ","AUC=", round(as.numeric(roc.lr.auc@y.values),3)), 
+    paste("NaiveBayes", " | ", "AUC=", round(as.numeric(roc.nb.auc@y.values), 3)),
+    paste("SVM", " | ", "AUC=", round(as.numeric(roc.auc.svm@y.values), 3)), 
+    paste("RandomForest", " | ", "AUC=", round(as.numeric(roc.auc.rf@y.values), 3))), 
+  inset = .025,
+  fill = c("red", "blue", "orange", "maroon")
+)
+segments(0, 0, 1, 1, lty = 4)
+
+jpeg("rocplot-all.jpg", width = 600, height = 400)
+dev.off()
+```
+
+
+```{r Validating and Evaluating Predictions}
+
+test.pred <- predict(lr.model, test.data, type="response")
+summary(lr.model)
+
+predicted <- plogis(predict(lr.model, test.data)) 
+
+library(InformationValue)
+optCutOff <- optimalCutoff(test.data$eng_fail, predicted)[1] 
+optCutOff
+
+# VIF must be less than 10
+vif(lr.model)
+
+#Misclassify Errors - needs to be low
+misClassError(test.data$eng_fail, predicted, threshold = optCutOff)
+
+# Concordance - needs to be high
+Concordance(test.data$eng_fail, predicted)
+
+sensitivity(test.data$eng_fail, predicted, threshold = optCutOff)
+
+specificity(test.data$eng_fail, predicted, threshold = optCutOff)
+
+# Confusion Matrix
+confusionMatrix(test.data$eng_fail, predicted, threshold = optCutOff)
+
+# Output dataframe with probabilities
+output.data <- cbind(test.data, predicted)
+
+```
+
