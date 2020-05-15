@@ -110,7 +110,7 @@ pilotApp <- function() {
 
 
 engineFailureApp <- function() {
-  output.data <- readRDS("../data/output.data.RDS")
+  output.data <- readRDS("../data/engine_pred_data.RDS")
   numengs <- levels(output.data$numengs)
   season <- levels(output.data$season)
   
