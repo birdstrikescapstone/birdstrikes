@@ -65,7 +65,7 @@ Our approach and model selection ensures we are predicting accurately in both th
 Based on the above considerations, we tuned several of the models before carrying out our final selection. Below, we discuss this work by way of an example for the XGBoost model.
 
 ##### Generalization Performance
-To ensure that the models did not overfit the data, we employed 5-fold cross-validation during the fitting procedure, and evaluated fitting graphs for various sample sizes. Figure 12 - Fitting Graph for XGBoost with Down Sampling illustrates this for down-sampled data. It is evident that the error rates decline with larger amounts of data, as might be expected, but pleasingly we do not see a divergence across training and test data as the training sample grows. Therefore, we conclude that this model can be expected to generalize well.
+To ensure that the models did not overfit the data, we employed 5-fold cross-validation during the fitting procedure, and evaluated fitting graphs for various sample sizes. It is evident that the error rates decline with larger amounts of data, as might be expected, but pleasingly we do not see a divergence across training and test data as the training sample grows. Therefore, we conclude that this model can be expected to generalize well.
 
 ##### Hyperparameter Tuning
 Furthermore, we used hyperparameter tuning (with parameters differing across the model types) by varying the respective parameters for each model and evaluating the resulting performance for each run. We used a tuning parameter grid for the number of boosting iterations (nrounds), learning rate (eta) and the maximum depth of the trees (max_depth) for XGBoost with down sampled data.

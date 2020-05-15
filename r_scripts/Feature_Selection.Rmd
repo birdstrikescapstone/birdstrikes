@@ -145,18 +145,18 @@ corr.plot.fn <- function(corr.data) {
 
 # Correlation Plot with all features
 corr.data <- model.data.day %>% dplyr::select(BIRDCOUNT,
-                                   # FLIGHTCOUNT,
+                                   FLIGHTCOUNT,
                                    TEMP,
-                                   # DEWP,
+                                   DEWP,
                                    SLP,
-                                   # VISIB,
-                                   # WDSP,
+                                   VISIB,
+                                   WDSP,
                                    MXSPD,
                                    PRCP,
-                                   STRIKECOUNT,
-                                   RATIO,
-                                   RATIOFW7D,
-                                   WEEK)
+                                   STRIKECOUNT)
+                                   # RATIO,
+                                   # RATIOFW7D,
+                                   # WEEK)
 
 # Print correlation plot
 corr.plot.fn(corr.data)
