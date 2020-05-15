@@ -2,8 +2,11 @@ library(shiny)
 library(shinyjs)
 library(shinydashboard)
 library(flexdashboard)
+library(plotly)
 
 source("Functions.R")
+
+output.data <- readRDS("../data/output.data.RDS")
 
 function(input, output, session) {
   
@@ -97,12 +100,133 @@ function(input, output, session) {
   
   ###################################################################################################################
   
+  # Engine Failure App Server Components
   
+  ###################################################################################################################
   
+
+  output$phPlot <- renderPlotly({
+    analyze.phs <-
+      output.data %>% dplyr::select(height, phase_of_flt, sky, eng_fail, predicted) %>%
+      dplyr::filter((output.data$numengs == input$numengs) &
+                      (output.data$height > 0 &
+                         output.data$height < 10000) &
+                      (output.data$season == input$season)
+                    &
+                      output.data$phase_of_flt %in% c(
+                        "approach",
+                        "arrival",
+                        "climb",
+                        "departure",
+                        "descent",
+                        "landingroll",
+                        "takeoffrun"
+                      )
+      )
+    
+    ggplot(analyze.phs, aes(height, predicted, color = phase_of_flt)) +
+      stat_smooth(
+        method = "glm",
+        family = binomial,
+        formula = y ~ x,
+        alpha = 0.2,
+        size = 1,
+      ) +
+      theme_bw() +
+      theme(
+        text = element_text(family = "Calibri", face = "bold"),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(
+          size = 12,
+          face = "bold",
+          angle = 0
+        ),
+        axis.text.y = element_text(
+          size = 12,
+          face = "bold",
+          angle = 0
+        ),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 11),
+        panel.background = element_rect(fill = "transparent"),
+        # bg of the panel
+        plot.background = element_rect(fill = "transparent", color = NA),
+        # bg of the plot
+        legend.background = element_rect(fill = "transparent"),
+        # get rid of legend bg
+        legend.box.background = element_rect(fill = "transparent") # get rid of legend panel bg
+      ) +
+      scale_y_continuous(limits = c(0, 0.025)) +
+      labs(
+        title = "Probability of Engine Failure by Phase of Flight and Altitude",
+        x = "Altitude",
+        y = "Probability of Engine Failure",
+        color = "Phase of Flight"
+      )
+    ggplotly()
+  })
   
-  
-  
-  
+  output$skyPlot <- renderPlotly({
+    analyze.phs <-
+      output.data %>% dplyr::select(height, phase_of_flt, sky, eng_fail, predicted) %>%
+      dplyr::filter((output.data$numengs == input$numengs) &
+                      (output.data$height > 0 &
+                         output.data$height < 10000) &
+                      (output.data$season == input$season) &
+                      (output.data$sky %in% c("nocloud", "overcast", "somecloud"))
+      )
+    
+    ggplot(analyze.phs, aes(height, predicted, color = sky)) +
+      stat_smooth(
+        method = "glm",
+        family = binomial,
+        formula = y ~ x,
+        alpha = 0.2,
+        size = 1,
+      ) +
+      theme_bw() +
+      theme(
+        text = element_text(family = "Calibri", face = "bold"),
+        panel.border = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(
+          size = 12,
+          face = "bold",
+          angle = 0
+        ),
+        axis.text.y = element_text(
+          size = 12,
+          face = "bold",
+          angle = 0
+        ),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 11),
+        panel.background = element_rect(fill = "transparent"),
+        # bg of the panel
+        plot.background = element_rect(fill = "transparent", color = NA),
+        # bg of the plot
+        legend.background = element_rect(fill = "transparent"),
+        # get rid of legend bg
+        legend.box.background = element_rect(fill = "transparent") # get rid of legend panel bg
+      ) +
+      scale_y_continuous(limits = c(0, 0.025)) +
+      labs(
+        title = "Probability of Engine Failure by Sky Conditions and Altitude",
+        x = "Altitude",
+        y = "Probability of Engine Failure",
+        color = "Sky Conditions"
+      )
+    ggplotly()
+  })
   
   
   ###################################################################################################################

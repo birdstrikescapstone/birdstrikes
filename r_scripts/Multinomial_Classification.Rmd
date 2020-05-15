@@ -767,7 +767,7 @@ base.theme.with.axis <- theme_bw() +
 
 ```{r Run Learning Curves}
 
-Declare train control with up sampling for use in learning
+# Declare train control with up sampling for use in learning
 trControl_up <- trainControl(
   method = "cv",
   number = 5,

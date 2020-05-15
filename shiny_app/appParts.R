@@ -63,7 +63,7 @@ pilotApp <- function() {
         
         tags$div(column(4,
                         wellPanel(
-                          # tags$style(".well {background-color:lightblue;}"),
+                          tags$style(".well {background-color:aliceblue;}"),
                           tags$div(tags$h5(tags$b(
                             "Historical Strike Count: "
                           )),
@@ -104,6 +104,79 @@ pilotApp <- function() {
           )
         )
       ))
+    )
+  )
+}
+
+
+engineFailureApp <- function() {
+  output.data <- readRDS("../data/output.data.RDS")
+  numengs <- levels(output.data$numengs)
+  season <- levels(output.data$season)
+  
+  tagList(
+    div(
+      class = "container",
+      h1("App for Pilot and Air Crews", class = "title fit-h1"),
+      h3("Predict Engine Failure", class = "title fit-h1"),
+      p(""),
+      p(""),
+      
+      fluidRow(tags$br()),
+      
+      fluidRow(tags$br()),
+      
+      fluidRow(tags$div(class = "container",
+                        column(
+                          6,
+                          div(
+                            class = "selectNumengs",
+                            tags$style(
+                              type = 'text/css',
+                              ".selectize-input { font-size: 18px; line-height: 20px;} .selectize-dropdown { font-size: 18px; line-height: 20px; }"
+                            ),
+                            selectInput("numengs",
+                                        tags$div(tags$h4(
+                                          tags$b("Select Number of Engines:")
+                                        )),
+                                        choices = numengs),
+                            style = "width: 60%; height: 200%; margin-left: 121px;",
+                            class = "Engsearch"
+                          )
+                        ),
+                        column(
+                          6,
+                          div(
+                            class = "selectSeasons",
+                            selectInput("season",
+                                        tags$div(tags$h4(
+                                          tags$b("Select Season:")
+                                        )),
+                                        choices = season),
+                            style = "width: 60%; height: 60%;",
+                            class = "Engsearch"
+                          )
+                        ))),
+      
+      fluidRow(tags$br()),
+      
+      fluidRow(
+        tags$div(class = "container",
+                 plotlyOutput("phPlot"),
+                 style = "width: 100%; height: 400%;")
+      ),
+      
+      fluidRow(tags$br()),
+      
+      fluidRow(tags$br()),
+      
+      fluidRow(
+        tags$div(
+          class = "container",
+          plotlyOutput("skyPlot"),
+          style = "width: 100%; height: 400%;"
+        )
+      )
     )
   )
 }
