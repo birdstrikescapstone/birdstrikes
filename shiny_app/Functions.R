@@ -3,10 +3,10 @@
   #Installing pacman  
   if (!require("pacman")) install.packages("pacman"); library(pacman)
   #enable pacman to call the required libraries  
-  pacman::p_load(base,jsonlite,leaflet,lubridate,plotly,purrr,
+  pacman::p_load(base,jsonlite,lubridate,plotly,purrr,
                  shiny,shinyjs,sp,tidyverse,urltools,utils,xml2,xts,zoo,
-                 tidyverse,shinydashboard,shinythemes,shinyWidgets,car,caret,data.table,pROC,ranger,Rtsne,
-                 xgboost,caretEnsemble,rebird,leaflet.extras,leaflet,shinyBS,owmr)
+                 tidyverse,shinydashboard,shinythemes,shinyWidgets,car,caret,Rtsne,
+                 rebird,leaflet.extras,leaflet,shinyBS,owmr,flexdashboard)
   
 #---------------------------- Predefined Values ----------------------------- 
   ###### Predefined Values 

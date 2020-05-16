@@ -1,8 +1,3 @@
-library(shiny)
-library(shinyjs)
-library(shinydashboard)
-library(flexdashboard)
-
 #  #Requiring all of the predefined libraries and functions
 source("appParts.R") 
 source("Functions.R")
