@@ -8,6 +8,8 @@ source("Functions.R")
 
 output.data <- readRDS("../data/engine_pred_data.RDS")
 
+output.data$predicted <- round(output.data$predicted, 4)
+
 function(input, output, session) {
   
   # Renders the map on the pilot app page
@@ -31,7 +33,7 @@ function(input, output, session) {
       species = NULL,
       lat = coord[1, 2],
       lng = coord[1, 3],
-      back = 30,
+      back = 1,
       dist = as.numeric(units::set_units(30, "mi")),
       key = EBIRD_KEY
     )
@@ -96,13 +98,13 @@ function(input, output, session) {
     }
     else
       tags$h2(tags$b("HIGH RISK", style = "font-size: 100%; color:FireBrick"))
-  })
-  
-  ###################################################################################################################
-  
-  # Engine Failure App Server Components
-  
-  ###################################################################################################################
+    })
+    
+    ###################################################################################################################
+    
+    # Engine Failure App Server Components
+    
+    ###################################################################################################################
   
 
   output$phPlot <- renderPlotly({
@@ -129,7 +131,6 @@ function(input, output, session) {
         method = "glm",
         family = binomial,
         formula = y ~ x,
-        alpha = 0.2,
         size = 1,
       ) +
       theme_bw() +
@@ -186,7 +187,6 @@ function(input, output, session) {
         method = "glm",
         family = binomial,
         formula = y ~ x,
-        alpha = 0.2,
         size = 1,
       ) +
       theme_bw() +

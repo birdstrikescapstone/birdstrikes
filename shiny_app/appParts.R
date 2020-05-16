@@ -50,23 +50,23 @@ pilotApp <- function() {
       
       fluidRow(
         tags$div(column(4,
+                        tags$div(tags$h4(tags$b(
+                          "Bird Strikes Risk Level:"
+                        ))),
                         wellPanel(
-                          tags$style(".well {background-color:aliceblue;}"),
-                          tags$div(tags$h5(tags$b(
-                            "Bird Strikes Risk Level: "
-                          )),
+                          tags$style(".well {background-color:Azure;}"),
                           tags$h4(
                             p(uiOutput("vboxrisk"), style = "font-size: 100%; color:blue;")
                           ))
-                        )),
+                        ),
                  style = "width: 91%; margin-left: 121px;"),
         
         tags$div(column(4,
+                        tags$div(tags$h4(tags$b(
+                          "Historical Strike Count: "
+                        )),
                         wellPanel(
-                          tags$style(".well {background-color:aliceblue;}"),
-                          tags$div(tags$h5(tags$b(
-                            "Historical Strike Count: "
-                          )),
+                          tags$style(".well {background-color:Azure;}"),
                           tags$h4(
                             p(uiOutput("vboxstrikes"), style = "font-size: 150%; color:blue;")
                           ))
