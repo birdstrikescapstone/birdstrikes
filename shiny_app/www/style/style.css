@@ -540,3 +540,10 @@ div#ss-connect-dialog a:visited {
 select {
     font: inherit;
 }
+
+.center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  width: 50%;
+}

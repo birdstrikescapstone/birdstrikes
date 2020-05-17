@@ -10970,3 +10970,10 @@ a.text-dark:hover, a.text-dark:focus {
 .list-group-item h6 {
   color: inherit;
 }
+
+.center {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  width: 50%;
+}
