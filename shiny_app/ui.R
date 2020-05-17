@@ -20,11 +20,11 @@ shinyUI(
                           type = "text/css"))
     ),
     # tab panel 2 - Neighborhood Browser
-    tabPanel(tags$b("Pilot App"),
+    tabPanel(tags$b("Strike Risk"),
              pilotApp()),
     
     # tab panel 3 - Location Comparison
-    tabPanel(tags$b("Engine Failure Analysis"),
+    tabPanel(tags$b("Engine Failure Risk"),
              engineFailureApp()),
     
     # tab panel 4 - About
