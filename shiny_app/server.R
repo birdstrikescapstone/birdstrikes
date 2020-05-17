@@ -77,7 +77,13 @@ function(input, output, session) {
       summarise(STRIKES = sum(STRIKECOUNT)) %>%
       arrange(-STRIKES)
     
-    tags$h2(tags$b(t[1, 2], style = "font-size: 100%; color:steelblue;"))
+    tags$h2(tags$b(
+      prettyNum(t[1, 2], big.mark = ","),
+      style = "font-size: 100%; color:steelblue;",
+      HTML(
+        "<p style = 'font-size: 10px; opacity:0;'><b>Click for Engine Failure Risk</b></p>"
+      )
+    ))
   })
   
   # Renders the text required for Bird strikes
@@ -85,16 +91,30 @@ function(input, output, session) {
     risk <- getDataAndRunPredict(input$airfield, input$date)
     
     if (risk[1, 1] == "L") {
-      tags$h2(tags$b("LOW RISK", style = "font-size: 100%; color:green;"))
+      tags$h2(tags$b(
+        "LOW RISK",
+        style = "font-size: 100%; color:green;",
+        HTML(
+          "<p style = 'font-size: 10px; opacity:0;'><b>Click for Engine Failure Risk</b></p>"
+        )
+      ))
     }
     else if (risk[1, 1] == "M") {
-      tags$h2(tags$b("MEDIUM RISK", style = "font-size: 100%; color:Chocolate"))
+      tags$h2(tags$b(
+        "MEDIUM RISK",
+        style = "font-size: 100%; color:Chocolate",
+        HTML(
+          "<p style = 'font-size: 10px; opacity:0;'><b>Click for Engine Failure Risk</b></p>"
+        )
+      ))
     }
     else
       tags$h2(tags$b(
         tags$a(onclick = "$('li:eq(2) a').tab('show');", "HIGH RISK", style = "font-size: 100%; color:FireBrick"),
-        style = "font-size: 100%; color:FireBrick", HTML("<p style = 'font-size: 10px;' > <b>Click for Engine Info</b> </p>"
-)
+        style = "font-size: 100%; color:FireBrick",
+        HTML(
+          "<p style = 'font-size: 10px;' > <b>Click for Engine Failure Risk</b></p>"
+        )
       ))
   })
     
