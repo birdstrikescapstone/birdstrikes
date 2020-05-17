@@ -9,7 +9,9 @@ pilotApp <- function() {
       class = "container",
       h1("Bird Strike Risk Predictor", class = "title fit-h1"),
      # p(HTML('<img src="images/WTF.png" width="50%" alt="3" class="center">')),
-      p(HTML("Based on the predictive model sourced from analyzing Denver International Airport&#39s bird strike risk levels, this tool enables pilots and other interested parties the information needed to prepare for any  preflight planning operations and provide caution to aircrews inflight. To utilize the app, Select the airfield and date of interest."),style="font-size:22px;"),
+      p(HTML("Based on the predictive model sourced from analyzing Denver International Airport&#39s bird strike risk levels, 
+             this tool enables pilots and other interested parties the information needed to prepare for any  preflight planning operations 
+             and provide caution to Aircrews inflight. To utilize the app, Select the Airfield and Date of interest."),style="font-size:22px;"),
       
       fluidRow(tags$div(class = "container",
                         column(
@@ -77,12 +79,11 @@ pilotApp <- function() {
       
       fluidRow(tags$div(column(
         6,
-        wellPanel(
           p(HTML("Map Information: <br>
-          1.	The blue circle around the marker indicates  a 10 mile radius around the airfield. <br>
-          2.	The heat map points around each airfield are <b> CURRENT </b> birds within a 30 mile radius of the airfield.  <br>
-          3.	The icons on cities local to the airfield shows the <b> CURRENT </b> weather conditions, zooming out of the map provides current precipitation trends. <br>"),style="font-size:16px;")
-        )
+          1.	The blue circle around the marker indicates  a 10 mile radius around the Airfield. <br>
+          2.	The heat map points around each airfield are <b> CURRENT </b> birds within a 30 mile radius of the Airfield.  <br>
+          3.	The icons on cities local to the Airfield shows the <b> CURRENT </b> weather conditions, 
+                 zooming out of the map provides current precipitation trends. <br>"),style="font-size:16px;")
       ),
       style = "width: 200%;")),
       
@@ -107,7 +108,9 @@ pilotApp <- function() {
           )
         )# closes the div of the map 
       )),
-     fluidRow(tags$br(),tags$p("This application and model was constructed using data provided by eBird from the Cornell Lab of Ornithology. The availability of this predictive bird strike model is intended to be used for flight planning in order to reduce the likelihood of a bird strike. Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
+     fluidRow(tags$br(),tags$p("This application and model was constructed using data provided by eBird from the Cornell Lab of Ornithology. 
+                               The availability of this predictive bird strike model is intended to be used for flight planning in order to reduce 
+                               the likelihood of a bird strike. Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
      #ends the fluid row on line 93
     )
   )
@@ -122,12 +125,14 @@ engineFailureApp <- function() {
   tagList(
     div(
       class = "container",
-      h1("App for Pilot and Air Crews", class = "title fit-h1"),
-      h3("Predict Engine Failure", class = "title fit-h1"),
-      p(""),
-      p(""),
-      
+      h1("Engine Failure Analysis", class = "title fit-h1"),
       fluidRow(tags$br()),
+      
+      p(
+        HTML(
+          "Based on our modeling and statistical analysis, we analyze engine failure in various scenarios and provide recommendations to the Aircrew. 
+          To utilize the App, select the Number of Engines and the current Season."),
+        style = "font-size:22px;"),
       
       fluidRow(tags$br()),
       
@@ -165,23 +170,71 @@ engineFailureApp <- function() {
       
       fluidRow(tags$br()),
       
+      fluidRow(tags$br()),
+      
       fluidRow(
-        tags$div(class = "container",
-                 plotlyOutput("phPlot"),
-                 style = "width: 100%; height: 400%;")
+        tags$div(
+          class = "container",
+          tags$div(tags$h4(
+            tags$b("Probability of Engine Failure by Phase of Flight and Altitude")
+          )),
+          plotlyOutput("phPlot"),
+          style = "width: 100%; height: 400%;"
+        )
       ),
       
       fluidRow(tags$br()),
+      
+      p(
+        HTML(
+          "Our prediction output shows the probability of engine failure for each phase of flight based on altitude levels. 
+          The comparison between phase of flight scenarios is consistent with our exploratory data analysis, such that we determined there is a greater number of engine 
+          failures upon the climb phase of flight than on approach. However, with prediction, we observe that the probability of engine failure converges at 
+          higher altitude levels regardless of the phase of flight. Likely this could be due to the lower number of birds flying at the higher altitude levels. 
+          Overall, we conclude that the probability of engine failure is most impacted by phase of flight at the lower altitude levels. Therefore, we recommend that:"),
+        style = "font-size:22px;"),
+      p(
+        HTML(   
+          "<ul>
+          <li style='font-size:20px'>Pilots should clear lower altitudes as efficiently as possible during the climb phase. This can be achieved by 
+          adjusting speed and flap settings to provide higher rates of climb</li><br>
+          <li style='font-size:20px'> Flight crews should delay takeoff and landing when there are reported cases of nearby flocks of birds </li> <br>
+          <li style='font-size:20px'> Aviation experts should provide pilot training programs for more emergency landing procedures.</li></ul><br>"),
+        style = "font-size:22px;"),
       
       fluidRow(tags$br()),
       
       fluidRow(
         tags$div(
           class = "container",
+          tags$div(tags$h4(
+            tags$b("Probability of Engine Failure by Sky Conditions and Altitude")
+          )),
           plotlyOutput("skyPlot"),
           style = "width: 100%; height: 400%;"
         )
-      )
+      ),
+      
+      fluidRow(tags$br()),
+      
+      p(
+        HTML(
+          "Our prediction output shows the probability of engine failure for the various sky conditions based on altitude levels. 
+          Initially during exploratory analysis, no cloud conditions were associated with the largest number of engine failures, 
+          though margins were slight between all conditions, and we determined results to be inconclusive due to the large number of unknown sky conditions. 
+          Post modeling, our prediction output shows that no cloud conditions yield 2x less probability of engine failure than some cloud and overcast conditions, 
+          and this is consistent over all altitude levels. However, as expected, the probability of engine failure decreases for all bird sizes as altitude increases. 
+          We continue to check our hypothesis that there is an overall lower number of birds flying at higher altitude levels. To mitigate engine failure at the lower altitude levels 
+          in poor sky conditions (overcast or some cloud), we recommend that:"),
+        style = "font-size:22px;"),
+      
+      p(
+        HTML(   
+          "<ul>
+          <li style='font-size:20px'> Pilots should remain alert at lower altitudes and in reduced visibility conditions</li><br>
+          <li style='font-size:20px'> Flight crews / Pilot training programs should dispel any misconceptions that birds only fly in clear skies </li> <br>
+          <li style='font-size:20px'> Pilot training programs should consider adding emergency landing / taking off simulations in reduced visibility situations.</li></ul><br>"),
+        style = "font-size:22px;")
     )
   )
 }

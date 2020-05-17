@@ -125,6 +125,7 @@ function(input, output, session) {
         method = "glm",
         family = binomial,
         formula = y ~ x,
+        alpha = 0,
         size = 1,
       ) +
       theme_bw() +
@@ -137,17 +138,17 @@ function(input, output, session) {
         axis.ticks.x = element_blank(),
         axis.ticks.y = element_blank(),
         axis.text.x = element_text(
-          size = 12,
+          size = 10,
           face = "bold",
           angle = 0
         ),
         axis.text.y = element_text(
-          size = 12,
+          size = 10,
           face = "bold",
           angle = 0
         ),
-        axis.title.x = element_text(size = 10),
-        axis.title.y = element_text(size = 11),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12),
         panel.background = element_rect(fill = "transparent"),
         # bg of the panel
         plot.background = element_rect(fill = "transparent", color = NA),
@@ -156,9 +157,8 @@ function(input, output, session) {
         # get rid of legend bg
         legend.box.background = element_rect(fill = "transparent") # get rid of legend panel bg
       ) +
-      scale_y_continuous(limits = c(0, 0.025)) +
+      scale_y_continuous(limits = c(0, 0.015)) +
       labs(
-        title = "Probability of Engine Failure by Phase of Flight and Altitude",
         x = "Altitude",
         y = "Probability of Engine Failure",
         color = "Phase of Flight"
@@ -181,6 +181,7 @@ function(input, output, session) {
         method = "glm",
         family = binomial,
         formula = y ~ x,
+        alpha = 0,
         size = 1,
       ) +
       theme_bw() +
@@ -193,17 +194,17 @@ function(input, output, session) {
         axis.ticks.x = element_blank(),
         axis.ticks.y = element_blank(),
         axis.text.x = element_text(
-          size = 12,
+          size = 10,
           face = "bold",
           angle = 0
         ),
         axis.text.y = element_text(
-          size = 12,
+          size = 10,
           face = "bold",
           angle = 0
         ),
-        axis.title.x = element_text(size = 10),
-        axis.title.y = element_text(size = 11),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12),
         panel.background = element_rect(fill = "transparent"),
         # bg of the panel
         plot.background = element_rect(fill = "transparent", color = NA),
@@ -212,9 +213,8 @@ function(input, output, session) {
         # get rid of legend bg
         legend.box.background = element_rect(fill = "transparent") # get rid of legend panel bg
       ) +
-      scale_y_continuous(limits = c(0, 0.025)) +
+      scale_y_continuous(limits = c(0, 0.011)) +
       labs(
-        title = "Probability of Engine Failure by Sky Conditions and Altitude",
         x = "Altitude",
         y = "Probability of Engine Failure",
         color = "Sky Conditions"
