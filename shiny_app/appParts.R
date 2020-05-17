@@ -53,7 +53,7 @@ pilotApp <- function() {
       fluidRow(
         tags$div(column(4,
                         tags$div(tags$h4(tags$b(
-                          "Bird Strikes Risk Level:"
+                          "Bird Strike Risk Level:"
                         ))),
                         wellPanel(
                           tags$style(".well {background-color:Azure;}"),

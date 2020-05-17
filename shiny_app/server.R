@@ -93,7 +93,8 @@ function(input, output, session) {
     else
       tags$h2(tags$b(
         tags$a(onclick = "$('li:eq(2) a').tab('show');", "HIGH RISK", style = "font-size: 100%; color:FireBrick"),
-        style = "font-size: 100%; color:FireBrick"
+        style = "font-size: 100%; color:FireBrick", HTML("<p style = 'font-size: 10px;' > <b>Click for Engine Info</b> </p>"
+)
       ))
   })
     
