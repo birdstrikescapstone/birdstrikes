@@ -14,10 +14,10 @@
   data <- readRDS("../data/AIRFIELDS_MASTER_V2.RDS")
 
   #List of Airfields to select in the User Interface
-  airfields<-c("KDEN - Denver International" = "KDEN",
-               "KDFW - Dallas Ft Worth International" = "KDFW",
-               "KORD - Chicago OHare International" =  "KORD",
-               "KSMF - Sacremento International" = "KSMF")
+  airfields<-c("KDEN - Denver Int" = "KDEN",
+               "KDFW - Dallas Ft Worth Int" = "KDFW",
+               "KORD - Chicago OHare Int" =  "KORD",
+               "KSMF - Sacramento Int" = "KSMF")
   
   #Airfields for Long & Lat
   air <- data.frame(
