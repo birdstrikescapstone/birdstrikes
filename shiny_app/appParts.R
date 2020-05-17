@@ -7,9 +7,9 @@ pilotApp <- function() {
     ),
     div(
       class = "container",
-      h1("App for Pilot and Air Crews", class = "title fit-h1"),
-      p(""),
-      p(""),
+      h1("Bird Strike Risk Predictor", class = "title fit-h1"),
+     # p(HTML('<img src="images/WTF.png" width="50%" alt="3" class="center">')),
+      p(HTML("Based on the predictive model sourced from analyzing Denver International Airport&#39s bird strike risk levels, this tool enables pilots and other interested parties the information needed to prepare for any  preflight planning operations and provide caution to aircrews inflight. To utilize the app, Select the airfield and date of interest."),style="font-size:22px;"),
       
       fluidRow(tags$div(class = "container",
                         column(
@@ -78,7 +78,10 @@ pilotApp <- function() {
       fluidRow(tags$div(column(
         6,
         wellPanel(
-          tags$h6("NOTE: <Something about the birds in the map and the risk level>")
+          p(HTML("Map Information: <br>
+          1.	The blue circle around the marker indicates  a 10 mile radius around the airfield. <br>
+          2.	The heat map points around each airfield are <b> CURRENT </b> birds within a 30 mile radius of the airfield.  <br>
+          3.	The icons on cities local to the airfield shows the <b> CURRENT </b> weather conditions, zooming out of the map provides current precipitation trends. <br>"),style="font-size:16px;")
         )
       ),
       style = "width: 200%;")),
@@ -102,8 +105,10 @@ pilotApp <- function() {
             width = "100%",
             height = 600
           )
-        )
-      ))
+        )# closes the div of the map 
+      )),
+     fluidRow(tags$br(),tags$p("This application and model was constructed using data provided by eBird from the Cornell Lab of Ornithology. The availability of this predictive bird strike model is intended to be used for flight planning in order to reduce the likelihood of a bird strike. Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
+     #ends the fluid row on line 93
     )
   )
 }
