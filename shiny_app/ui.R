@@ -6,7 +6,7 @@ source("Functions.R")
 # #---------------------------- OTHER UI -----------------------------
 shinyUI(
   navbarPage(
-    title = tags$b("Bird Strikes"),
+    title = tags$b("Bird Strike"),
     theme = "style/style.css",
     footer = includeHTML("footer.html"),
     fluid = TRUE,
@@ -29,7 +29,7 @@ shinyUI(
     
     # tab panel 4 - About
     tabPanel(
-      tags$b("About Team"),
+      tags$b("About the Team"),
       includeHTML("about.html"),
       shinyjs::useShinyjs(),
       tags$head(
