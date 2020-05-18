@@ -9,7 +9,11 @@ pilotApp <- function() {
       class = "container",
       h1("Bird Strike Risk Predictor", class = "title fit-h1"),
      # p(HTML('<img src="images/WTF.png" width="50%" alt="3" class="center">')),
-      p(HTML("The predictive model developed from analyzing Denver International Airport&#39s bird strikes; this tool enables pilots and other interested parties the information needed to prepare for any preflight planning operations. To utilize the tool, Select the Airfield and Date of interest. <br> <p style  = 'font-size: 17px; text-align:center'> <i> *Historical Strike Count is based based on data between January 1st, 2000 to December 31st, 2019 for strikes at or below 2000 feet. Any strikes not meeting this critera were disregarded.</i></p>"),style="font-size:22px;text-align:center"),
+      p(HTML("The predictive model developed from analyzing Denver International Airport&#39s bird strikes; 
+             this tool enables pilots and other interested parties the information needed to prepare for any preflight planning operations. 
+             To utilize the tool, Select the Airfield and Date of interest. <br> <p style  = 'font-size: 17px; text-align:center'> 
+             <i> *Historical Strike Count is based based on data between January 1st, 2000 to December 31st, 2019 for strikes at or below 2000 feet. 
+             Any strikes not meeting this critera were disregarded.</i></p>"),style="font-size:21px;text-align:center"),
       
       fluidRow(tags$div(class = "container",
                         column(
@@ -108,7 +112,8 @@ pilotApp <- function() {
       )),
      fluidRow(tags$br(),tags$p("This application and model was constructed using data provided by eBird from the Cornell Lab of Ornithology. 
                                The availability of this predictive bird strike model is intended to be used for flight planning in order to reduce 
-                               the likelihood of a bird strike. Please refer to the credits and disclaimers for data source information and references. Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
+                               the likelihood of a bird strike. Please refer to the credits and disclaimers for data source information and references. 
+                               Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
      #ends the fluid row on line 93
     )
   )
@@ -130,7 +135,7 @@ engineFailureApp <- function() {
         HTML(
           "Based on our modeling and statistical analysis, we analyze engine failure in various scenarios and provide recommendations to the Aircrew. 
           To utilize the App, select the Number of Engines and the current Season."),
-        style = "font-size:22px;"),
+        style = "font-size:21px;"),
       
       fluidRow(tags$br()),
       
@@ -190,7 +195,7 @@ engineFailureApp <- function() {
           failures upon the climb phase of flight than on approach. However, with prediction, we observe that the probability of engine failure converges at 
           higher altitude levels regardless of the phase of flight. Likely this could be due to the lower number of birds flying at the higher altitude levels. 
           Overall, we conclude that the probability of engine failure is most impacted by phase of flight at the lower altitude levels. Therefore, we recommend that:"),
-        style = "font-size:22px;"),
+        style = "font-size:21px;"),
       p(
         HTML(   
           "<ul>
@@ -198,7 +203,7 @@ engineFailureApp <- function() {
           adjusting speed and flap settings to provide higher rates of climb</li><br>
           <li style='font-size:20px'> Flight crews should delay takeoff and landing when there are reported cases of nearby flocks of birds </li> <br>
           <li style='font-size:20px'> Aviation experts should provide pilot training programs for more emergency landing procedures.</li></ul><br>"),
-        style = "font-size:22px;"),
+        style = "font-size:21px;"),
       
       fluidRow(tags$br()),
       
@@ -224,7 +229,7 @@ engineFailureApp <- function() {
           and this is consistent over all altitude levels. However, as expected, the probability of engine failure decreases for all bird sizes as altitude increases. 
           We continue to check our hypothesis that there is an overall lower number of birds flying at higher altitude levels. To mitigate engine failure at the lower altitude levels 
           in poor sky conditions (overcast or some cloud), we recommend that:"),
-        style = "font-size:22px;"),
+        style = "font-size:21px;"),
       
       p(
         HTML(   
@@ -232,7 +237,7 @@ engineFailureApp <- function() {
           <li style='font-size:20px'> Pilots should remain alert at lower altitudes and in reduced visibility conditions</li><br>
           <li style='font-size:20px'> Flight crews / Pilot training programs should dispel any misconceptions that birds only fly in clear skies </li> <br>
           <li style='font-size:20px'> Pilot training programs should consider adding emergency landing / taking off simulations in reduced visibility situations.</li></ul><br>"),
-        style = "font-size:22px;")
+        style = "font-size:21px;")
     )
   )
 }
