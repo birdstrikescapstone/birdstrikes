@@ -9,9 +9,7 @@ pilotApp <- function() {
       class = "container",
       h1("Bird Strike Risk Predictor", class = "title fit-h1"),
      # p(HTML('<img src="images/WTF.png" width="50%" alt="3" class="center">')),
-      p(HTML("Based on the predictive model sourced from analyzing Denver International Airport&#39s bird strike risk levels, 
-             this tool enables pilots and other interested parties the information needed to prepare for any  preflight planning operations 
-             and provide caution to Aircrews inflight. To utilize the app, Select the Airfield and Date of interest."),style="font-size:22px;"),
+      p(HTML("The predictive model developed from analyzing Denver International Airport&#39s bird strikes; this tool enables pilots and other interested parties the information needed to prepare for any preflight planning operations. To utilize the tool, Select the Airfield and Date of interest. <br> <p style  = 'font-size: 17px; text-align:center'> <i> *Historical Strike Count is based based on data between January 1st, 2000 to December 31st, 2019 for strikes at or below 2000 feet. Any strikes not meeting this critera were disregarded.</i></p>"),style="font-size:22px;text-align:center"),
       
       fluidRow(tags$div(class = "container",
                         column(
@@ -79,11 +77,11 @@ pilotApp <- function() {
       
       fluidRow(tags$div(column(
         6,
-          p(HTML("Map Information: <br>
-          1.	The blue circle around the marker indicates  a 10 mile radius around the Airfield. <br>
-          2.	The heat map points around each airfield are <b> CURRENT </b> birds within a 30 mile radius of the Airfield.  <br>
-          3.	The icons on cities local to the Airfield shows the <b> CURRENT </b> weather conditions, 
-                 zooming out of the map provides current precipitation trends. <br>"),style="font-size:16px;")
+          p(HTML("<p>Map Information:</p><ul>
+  <li>The blue circle around the marker indicates  a 10 mile radius around the Airfield selected. </li>
+  <li>The heat map marked on the map indicate the reported birds in the  <b> LAST 24 HOURS </b> within a 30 mile radius of the Airfield selected.</li>
+  <li>The icons on cities local to the Airfield shows the <b> CURRENT </b> weather conditions such as precipitation, temperature, sky conditions (zooming out of the map provides overall precipitation trends) </li>
+</ul>"),style="font-size:16px;")
       ),
       style = "width: 200%;")),
       
@@ -110,7 +108,7 @@ pilotApp <- function() {
       )),
      fluidRow(tags$br(),tags$p("This application and model was constructed using data provided by eBird from the Cornell Lab of Ornithology. 
                                The availability of this predictive bird strike model is intended to be used for flight planning in order to reduce 
-                               the likelihood of a bird strike. Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
+                               the likelihood of a bird strike. Please refer to the credits and disclaimers for data source information and references. Our team and affiliation is not liable for losses incurred as a result of a bird strike."))
      #ends the fluid row on line 93
     )
   )
